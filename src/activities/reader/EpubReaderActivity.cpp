@@ -1766,7 +1766,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
 void EpubReaderActivity::renderStatusBar() const {
   const int currentPage = section->currentPage + 1;
-  const float pageCount = section->pageCount;
+  const int pageCount = section->pageCount;
   const float bookProgress = getCurrentBookProgressPercent();
 
   std::string title;
@@ -1799,7 +1799,14 @@ void EpubReaderActivity::renderStatusBar() const {
   const float rawProgress = (pageCount > 0) ? (static_cast<float>(section->currentPage) / pageCount) : 0.0f;
   const bool bookmarked = BOOKMARKS.hasBookmarkForPage(static_cast<uint16_t>(currentSpineIndex), rawProgress,
                                                        section->pageCount > 0 ? section->pageCount : 1);
-  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, bookmarked);
+  uint32_t chapterMinutesRemaining = 0;
+  if (pageCount > 0 && currentPage <= pageCount) {
+    const uint32_t remainingPages = static_cast<uint32_t>(pageCount - currentPage + 1);
+    chapterMinutesRemaining = stats.getEstimatedMinutesRemaining(remainingPages);
+  }
+
+  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, bookmarked,
+                    chapterMinutesRemaining);
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

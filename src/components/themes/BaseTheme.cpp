@@ -7,12 +7,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdint>
 #include <string>
 
 #include "I18n.h"
 #include "RecentBooksStore.h"
-#include "activities/reader/BookReadingStats.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -690,7 +690,7 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool isPageBookmarked) const {
+                              const bool isPageBookmarked, const uint32_t chapterMinutesRemaining) const {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -744,6 +744,9 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   static constexpr int bmIconGap = 4;
   static constexpr int bmNotchDepth = 5;
   const int bmTotalWidth = isPageBookmarked ? (bmIconW + bmIconGap) : 0;
+  const bool showBatteryPercentage =
+      SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
+  int leftContentWidth = bmTotalWidth;
 
   if (isPageBookmarked) {
     const int bmX = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1;
@@ -757,13 +760,30 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   }
 
   // Draw Battery
-  const bool showBatteryPercentage =
-      SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
   if (SETTINGS.statusBarBattery) {
     GUI.drawBatteryLeft(renderer,
                         Rect{metrics.statusBarHorizontalMargin + orientedMarginLeft + 1 + bmTotalWidth, textY,
                              metrics.batteryWidth, metrics.batteryHeight},
                         showBatteryPercentage);
+    leftContentWidth += metrics.batteryWidth;
+    if (showBatteryPercentage) {
+      const auto percentageText = std::to_string(powerManager.getBatteryPercentage()) + "%";
+      leftContentWidth += batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, percentageText.c_str());
+    }
+  }
+
+  int remainingTimeWidth = 0;
+  if (chapterMinutesRemaining > 0) {
+    char remainingTimeText[24];
+    snprintf(remainingTimeText, sizeof(remainingTimeText), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
+             static_cast<unsigned>(chapterMinutesRemaining));
+    remainingTimeWidth = renderer.getTextWidth(SMALL_FONT_ID, remainingTimeText);
+    constexpr int remainingTimeGap = 8;
+    renderer.drawText(SMALL_FONT_ID,
+                      metrics.statusBarHorizontalMargin + orientedMarginLeft + 1 + leftContentWidth +
+                          remainingTimeGap,
+                      textY, remainingTimeText);
+    leftContentWidth += remainingTimeGap + remainingTimeWidth;
   }
 
   // Draw Title
@@ -774,8 +794,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     const int rendererableScreenWidth =
         renderer.getScreenWidth() - (metrics.statusBarHorizontalMargin * 2) - orientedMarginLeft - orientedMarginRight;
 
-    const int batterySize = SETTINGS.statusBarBattery ? (showBatteryPercentage ? 50 : 20) : 0;
-    const int titleMarginLeft = batterySize + bmTotalWidth + 30;
+    const int titleMarginLeft = leftContentWidth + 30;
     const int titleMarginRight = progressTextWidth + 30;
 
     // Attempt to center title on the screen, but if title is too wide then later we will center it within the
@@ -789,6 +808,9 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       // Not enough space to center on the screen, center it within the remaining space instead
       availableTitleSpace = rendererableScreenWidth - titleMarginLeft - titleMarginRight;
       titleMarginLeftAdjusted = titleMarginLeft;
+    }
+    if (availableTitleSpace <= 0) {
+      return;
     }
     if (titleWidth > availableTitleSpace) {
       title = renderer.truncatedText(SMALL_FONT_ID, title.c_str(), availableTitleSpace);

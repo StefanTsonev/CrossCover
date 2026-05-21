@@ -55,6 +55,16 @@ BookReadingStats BookReadingStats::load(const std::string& cachePath) {
   return stats;
 }
 
+uint32_t BookReadingStats::getEstimatedMinutesRemaining(uint32_t remainingPages) const {
+  if (totalPagesTurned == 0 || totalReadingSeconds == 0) {
+    return 0;
+  }
+  float secondsPerPage = (float)totalReadingSeconds / (float)totalPagesTurned;
+  uint32_t remainingSeconds = (uint32_t)(remainingPages * secondsPerPage);
+  uint32_t minutes = remainingSeconds / 60;
+  return (minutes < 1) ? 1 : minutes;
+}
+
 void BookReadingStats::formatDuration(uint32_t seconds, char* buf, size_t len) {
   if (seconds < 60) {
     snprintf(buf, len, "%s", tr(STR_STATS_LESS_THAN_MIN));

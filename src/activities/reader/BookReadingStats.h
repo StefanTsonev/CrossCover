@@ -19,4 +19,7 @@ struct BookReadingStats {
   // Formats a duration in seconds into a human-readable string.
   // Output examples: "< 1 min", "45 min", "2h 30 min"
   static void formatDuration(uint32_t seconds, char* buf, size_t len);
+
+  // Estimates remaining reading time in minutes based on current reading speed.
+  uint32_t getEstimatedMinutesRemaining(uint32_t remainingPages) const;
 };

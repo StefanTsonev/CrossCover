@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added estimated time remaining in the current EPUB chapter to the reader status bar.
 
 ### Fixed
 
