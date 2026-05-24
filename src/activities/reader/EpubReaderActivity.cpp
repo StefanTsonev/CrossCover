@@ -10,9 +10,11 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <MemoryBudget.h>
+#include <WiFi.h>
 #include <esp_system.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -27,6 +29,10 @@
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
 #include "GlobalActions.h"
+#include "HardcoverBookActivity.h"
+#include "HardcoverBookLinkStore.h"
+#include "HardcoverClient.h"
+#include "HardcoverCredentialStore.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
@@ -49,6 +55,7 @@ constexpr uint16_t DEFAULT_AUTO_PAGE_TURN_INTERVAL_S = 30;
 constexpr uint16_t MIN_AUTO_PAGE_TURN_INTERVAL_S = 5;
 constexpr uint16_t MAX_AUTO_PAGE_TURN_INTERVAL_S = 120;
 constexpr int MAX_PAGE_LOAD_RETRIES = 3;
+constexpr int HARDCOVER_AUTO_SYNC_THRESHOLD_PERCENT = 20;
 
 void drawToastBuffer(const GfxRenderer& renderer, const char* msg) {
   constexpr int toastPadX = 20;
@@ -352,8 +359,17 @@ void EpubReaderActivity::onExit() {
   }
   globalStats.save();
 
+  int hardcoverProgressPercent = 0;
+  if (epub && section) {
+    hardcoverProgressPercent = clampPercent(static_cast<int>(getCurrentBookProgressPercent() + 0.5f));
+  }
+
   BOOKMARKS.unload();
   section.reset();
+
+  if (epub) {
+    syncHardcoverOnClose(hardcoverProgressPercent);
+  }
 
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
@@ -919,6 +935,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::HARDCOVER:
+      openHardcoverMenu();
+      break;
     case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {
       const bool markCompleted = !stats.isCompleted;
       setBookCompleted(markCompleted);
@@ -1273,6 +1292,64 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
 
   stats.save(epub->getCachePath());
   globalStats.save();
+}
+
+void EpubReaderActivity::openHardcoverMenu() {
+  int progressPercent = 0;
+  if (epub) {
+    float bookProgress = getCurrentBookProgressPercent();
+    progressPercent = static_cast<int>(bookProgress + 0.5f);
+    if (progressPercent < 0) progressPercent = 0;
+    if (progressPercent > 100) progressPercent = 100;
+  }
+  startActivityForResult(
+      std::make_unique<HardcoverBookActivity>(renderer, mappedInput, epub ? epub->getPath() : std::string{},
+                                              epub ? epub->getTitle() : std::string{},
+                                              epub ? epub->getAuthor() : std::string{}, progressPercent),
+      [this](const ActivityResult&) { requestUpdate(); });
+}
+
+void EpubReaderActivity::syncHardcoverOnClose(int progressPercent) {
+  if (!epub || !HARDCOVER_STORE.hasApiToken()) {
+    return;
+  }
+
+  HardcoverBookLink link;
+  if (!HARDCOVER_LINKS.getLink(epub->getPath(), link) || !link.autoSync || link.bookId <= 0) {
+    return;
+  }
+
+  progressPercent = clampPercent(progressPercent);
+  const bool isFirstSync = link.lastSyncedProgress < 0;
+  const int delta = isFirstSync ? progressPercent : std::abs(progressPercent - link.lastSyncedProgress);
+  if (!stats.isCompleted && !isFirstSync && delta < HARDCOVER_AUTO_SYNC_THRESHOLD_PERCENT) {
+    LOG_DBG("HDC", "Skipping close sync: progress delta %d%% below threshold", delta);
+    return;
+  }
+  if (isFirstSync && progressPercent == 0 && !stats.isCompleted) {
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    LOG_DBG("HDC", "Skipping close sync: WiFi not connected");
+    return;
+  }
+
+  LOG_INF("HDC", "Auto-sync on close: book=%d progress=%d%% completed=%d", link.bookId, progressPercent,
+          stats.isCompleted ? 1 : 0);
+
+  HardcoverClient::Error error = HardcoverClient::OK;
+  if (stats.isCompleted) {
+    error = HardcoverClient::upsertBookStatus(link.bookId, 3);
+    progressPercent = 100;
+  }
+  if (error == HardcoverClient::OK) {
+    error = HardcoverClient::updateProgress(link.bookId, progressPercent);
+  }
+  if (error == HardcoverClient::OK) {
+    HARDCOVER_LINKS.updateLastSyncedProgress(epub->getPath(), progressPercent);
+  } else {
+    LOG_ERR("HDC", "Auto-sync on close failed: %s", HardcoverClient::errorString(error));
+  }
 }
 
 void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {

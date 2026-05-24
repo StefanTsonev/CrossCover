@@ -23,6 +23,7 @@
 #include "BookmarkStore.h"
 #include "BookmarksHomeActivity.h"
 #include "CrossPointSettings.h"
+#include "HardcoverLibraryActivity.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -44,6 +45,7 @@ enum class HomeMenuAction {
   ContinueReading,
   RecentBooks,
   OpdsBrowser,
+  Hardcover,
   ReadingStats,
   Bookmarks,
   FileTransfer,
@@ -182,6 +184,7 @@ std::vector<HomeMenuEntry> buildHomeMenuItems(bool hasOpdsServers, bool hasReadi
   if (hasOpdsServers) {
     items.push_back({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
+  items.push_back({tr(STR_HARDCOVER), Library, HomeMenuAction::Hardcover});
   if (hasReadingStats) {
     items.push_back({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   }
@@ -202,6 +205,7 @@ std::vector<HomeMenuEntry> buildMinimalMenuItems(bool hasOpdsServers, bool hasRe
   if (hasOpdsServers) {
     items.push_back({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
+  items.push_back({tr(STR_HARDCOVER), Library, HomeMenuAction::Hardcover});
   if (hasBookmarks) {
     items.push_back({tr(STR_BOOKMARKS), BookmarkIcon, HomeMenuAction::Bookmarks});
   }
@@ -415,22 +419,10 @@ static_assert(HomeActivity::kMaxCachedBooks >= LyraCarouselMetrics::values.homeR
 
 int HomeActivity::getMenuItemCount() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  int count = 4;  // File Browser, Recents, File transfer, Settings
-  if (!metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
-    count += recentBooks.size();
-  } else if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
-    count++;  // Continue Reading menu item
-  }
-  if (hasOpdsServers) {
-    count++;
-  }
-  if (hasReadingStats) {
-    count++;
-  }
-  if (hasBookmarks) {
-    count++;
-  }
-  return count;
+  return getHomeMenuSelectionOffset(recentBooks) +
+         static_cast<int>(buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks,
+                                                       metrics.homeContinueReadingInMenu && !recentBooks.empty())
+                              .size());
 }
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
@@ -1193,6 +1185,9 @@ void HomeActivity::loop() {
           case HomeMenuAction::OpdsBrowser:
             onOpdsBrowserOpen();
             break;
+          case HomeMenuAction::Hardcover:
+            onHardcoverOpen();
+            break;
           case HomeMenuAction::ReadingStats:
             onReadingStatsOpen();
             break;
@@ -1362,6 +1357,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuAction::OpdsBrowser:
         onOpdsBrowserOpen();
+        break;
+      case HomeMenuAction::Hardcover:
+        onHardcoverOpen();
         break;
       case HomeMenuAction::ReadingStats:
         onReadingStatsOpen();
@@ -1588,6 +1586,11 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onHardcoverOpen() {
+  startActivityForResult(std::make_unique<HardcoverLibraryActivity>(renderer, mappedInput),
+                         [this](const ActivityResult&) { requestUpdate(); });
+}
 
 void HomeActivity::onReadingStatsOpen() {
   const int highlightedBookIdx = getHighlightedBookIndex();

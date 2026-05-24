@@ -107,6 +107,8 @@ class EpubReaderActivity final : public Activity {
   bool isAtOrPastCompletionTrigger() const;
   void queueCompletionPromptIfNeeded();
   void setBookCompleted(bool isCompleted);
+  void openHardcoverMenu();
+  void syncHardcoverOnClose(int progressPercent);
   void showCompletedFeedback(bool isCompleted);
   void showTiltPageTurnFeedback(bool enabled);
 

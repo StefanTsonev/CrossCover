@@ -23,6 +23,7 @@ class EpubReaderMenuActivity final : public Activity {
     DISPLAY_QR,
     GO_HOME,
     SYNC,
+    HARDCOVER,
     DELETE_CACHE,
     READING_STATS,
     TOGGLE_COMPLETED,

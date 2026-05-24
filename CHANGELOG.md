@@ -4,6 +4,9 @@
 
 ### Added
 - Added estimated time remaining in the current EPUB chapter to the reader status bar.
+- Added manual Hardcover integration scaffolding with API key settings, local book ID linking, reader actions, and a library view.
+- Added optional Hardcover auto-sync on reader close, using a conservative progress threshold to avoid page-by-page API calls.
+- Added a Hardcover reader action that searches by EPUB title and links the first matching Hardcover book automatically.
 - Added Back/Cancel support while downloading books from OPDS catalogs.
 - Added a Recent Books long-press menu in both List and Grid views with delete, cache delete, completion, and remove-from-recents actions.
 - Added a Minimal sleep screen option that shows the current book cover and reading progress on a dark background.
@@ -12,6 +15,7 @@
 - Added an in-reader confirmation message when a shortcut turns tilt-to-turn on or off.
 
 ### Fixed
+- Fixed Hardcover library/status API calls to use the authenticated user ID and update existing library entries instead of blindly inserting duplicate user books.
 - Fixed WiFi and OPDS connection-flow edge cases so manual Settings connections show the connected status first, copied or corrupted saved-password files are rejected before use, OPDS retries show loading before requests, and large OPDS feeds fail safely under low memory instead of rebooting.
 - Fixed reader and Home UI polish issues, including landscape status-bar settings, missing Vietnamese labels, File Browser and Lyra Carousel icon alignment, cover thumbnail artifacts, and duplicate Home progress/stat loading.
 - Fixed EPUB cache and low-memory handling by using stable cache folder keys, migrating older cache folders where possible, rebuilding stale section caches, laying out very long text blocks earlier, streaming table fallback content when heap is tight, and clarifying the warning text.
@@ -19,6 +23,7 @@
 - Fixed remaining reader service edge cases, including an XTC chapter selector crash on memory-constrained builds, SD-card font size selection, SD-card font-size shortcuts skipping manually installed sizes, and KOReader Sync login compatibility with self-hosted servers that return valid JSON on success.
 
 ### Changed
+- Renamed the visible firmware branding to CrossCover and refreshed the README for the Hardcover-focused project.
 - Modified upstream "page-as-sleep" behavior into a new `Sleep Screen > Quick Resume` option, which also keeps `Quick Resume on Timeout` on, and renamed the timeout-only toggle.
 - Improved reader and browser menu behavior by moving the Footnotes shortcut above Select Chapter, wrapping long book titles in action menus, and reducing progress-screen repaint work during OPDS and SD font downloads.
 
