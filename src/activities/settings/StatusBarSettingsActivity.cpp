@@ -23,6 +23,7 @@ enum MenuItem {
   ITEM_PROGRESS_BAR,
   ITEM_PROGRESS_BAR_THICKNESS,
   ITEM_TITLE,
+  ITEM_CHAPTER_REMAINING_TIME,
   ITEM_BATTERY,
   ITEM_XTC_STATUS_BAR,
   ITEM_CLOCK,             // X3 only
@@ -41,6 +42,7 @@ const StrId menuNames[FULL_MENU_ITEMS] = {
     StrId::STR_PROGRESS_BAR,
     StrId::STR_PROGRESS_BAR_THICKNESS,
     StrId::STR_TITLE,
+    StrId::STR_CHAPTER_REMAINING_TIME,
     StrId::STR_BATTERY,
     StrId::STR_XTC_STATUS_BAR,
     StrId::STR_CLOCK,
@@ -74,6 +76,10 @@ const StrId progressBarThicknessNames[PROGRESS_BAR_THICKNESS_ITEMS] = {
 constexpr int TITLE_ITEMS = 3;
 const StrId titleNames[TITLE_ITEMS] = {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE};
 
+constexpr int REMAINING_TIME_ITEMS = 4;
+const StrId remainingTimeNames[REMAINING_TIME_ITEMS] = {StrId::STR_HIDE, StrId::STR_CHAPTER, StrId::STR_BOOK,
+                                                        StrId::STR_BOTH};
+
 constexpr int XTC_STATUS_BAR_ITEMS = 3;
 const StrId xtcStatusBarNames[XTC_STATUS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP};
 
@@ -98,6 +104,10 @@ void StatusBarSettingsActivity::onEnter() {
 
   if (SETTINGS.statusBarTitle >= TITLE_ITEMS) {
     SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE;
+  }
+
+  if (SETTINGS.statusBarChapterRemainingTime >= REMAINING_TIME_ITEMS) {
+    SETTINGS.statusBarChapterRemainingTime = CrossPointSettings::REMAINING_TIME_CHAPTER;
   }
 
   if (SETTINGS.xtcStatusBarMode >= XTC_STATUS_BAR_ITEMS) {
@@ -169,6 +179,9 @@ void StatusBarSettingsActivity::handleSelection() {
     case ITEM_TITLE:
       SETTINGS.statusBarTitle = (SETTINGS.statusBarTitle + 1) % TITLE_ITEMS;
       break;
+    case ITEM_CHAPTER_REMAINING_TIME:
+      SETTINGS.statusBarChapterRemainingTime = (SETTINGS.statusBarChapterRemainingTime + 1) % REMAINING_TIME_ITEMS;
+      break;
     case ITEM_BATTERY:
       SETTINGS.statusBarBattery = (SETTINGS.statusBarBattery + 1) % 2;
       break;
@@ -229,6 +242,8 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
             return I18N.get(progressBarThicknessNames[SETTINGS.statusBarProgressBarThickness]);
           case ITEM_TITLE:
             return I18N.get(titleNames[SETTINGS.statusBarTitle]);
+          case ITEM_CHAPTER_REMAINING_TIME:
+            return I18N.get(remainingTimeNames[SETTINGS.statusBarChapterRemainingTime]);
           case ITEM_BATTERY:
             return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
           case ITEM_XTC_STATUS_BAR:
@@ -260,7 +275,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     title = tr(STR_EXAMPLE_CHAPTER);
   }
 
-  GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding);
+  GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding, 0, false, 12, 180);
 
   renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding,
                     renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -

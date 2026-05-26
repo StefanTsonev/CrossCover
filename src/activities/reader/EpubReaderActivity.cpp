@@ -55,8 +55,6 @@ constexpr uint16_t DEFAULT_AUTO_PAGE_TURN_INTERVAL_S = 30;
 constexpr uint16_t MIN_AUTO_PAGE_TURN_INTERVAL_S = 5;
 constexpr uint16_t MAX_AUTO_PAGE_TURN_INTERVAL_S = 120;
 constexpr int MAX_PAGE_LOAD_RETRIES = 3;
-constexpr int HARDCOVER_AUTO_SYNC_THRESHOLD_PERCENT = 20;
-
 void drawToastBuffer(const GfxRenderer& renderer, const char* msg) {
   constexpr int toastPadX = 20;
   constexpr int toastPadY = 12;
@@ -314,6 +312,7 @@ void EpubReaderActivity::onEnter() {
   // Session count and reading time are committed on exit once thresholds are met.
   stats = BookReadingStats::load(epub->getCachePath());
   sessionStartMs = millis();
+  sessionStartPageTurns = stats.totalPagesTurned;
 
   globalStats = GlobalReadingStats::load();
 
@@ -345,6 +344,9 @@ void EpubReaderActivity::onExit() {
   // Sessions under 1 minute don't count toward session count or reading time.
   // Sessions under 10 seconds don't add to reading time.
   const unsigned long elapsedMs = millis() - sessionStartMs;
+  const uint32_t sessionPagesTurned = stats.totalPagesTurned >= sessionStartPageTurns
+                                          ? stats.totalPagesTurned - sessionStartPageTurns
+                                          : 0;
   if (elapsedMs >= 60000UL) {
     stats.sessionCount++;
     globalStats.totalSessions++;
@@ -362,6 +364,16 @@ void EpubReaderActivity::onExit() {
   int hardcoverProgressPercent = 0;
   if (epub && section) {
     hardcoverProgressPercent = clampPercent(static_cast<int>(getCurrentBookProgressPercent() + 0.5f));
+  }
+
+  if (SETTINGS.readingSessionSummary && (elapsedMs >= 10000UL || sessionPagesTurned > 0)) {
+    char duration[24];
+    BookReadingStats::formatDuration(static_cast<uint32_t>(elapsedMs / 1000UL), duration, sizeof(duration));
+    snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s", tr(STR_READING_SESSION_SUMMARY));
+    snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), tr(STR_READING_SESSION_SUMMARY_BODY),
+             duration, static_cast<unsigned long>(sessionPagesTurned), hardcoverProgressPercent);
+    APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);
+    APP_STATE.hasPendingAlert.store(true, std::memory_order_release);
   }
 
   BOOKMARKS.unload();
@@ -1322,7 +1334,9 @@ void EpubReaderActivity::syncHardcoverOnClose(int progressPercent) {
   progressPercent = clampPercent(progressPercent);
   const bool isFirstSync = link.lastSyncedProgress < 0;
   const int delta = isFirstSync ? progressPercent : std::abs(progressPercent - link.lastSyncedProgress);
-  if (!stats.isCompleted && !isFirstSync && delta < HARDCOVER_AUTO_SYNC_THRESHOLD_PERCENT) {
+  const int threshold =
+      CrossPointSettings::normalizeHardcoverAutoSyncThreshold(SETTINGS.hardcoverAutoSyncThresholdPercent);
+  if (!stats.isCompleted && !isFirstSync && delta < threshold) {
     LOG_DBG("HDC", "Skipping close sync: progress delta %d%% below threshold", delta);
     return;
   }
@@ -1958,11 +1972,44 @@ void EpubReaderActivity::renderStatusBar() const {
   uint32_t chapterMinutesRemaining = 0;
   if (pageCount > 0 && currentPage <= pageCount) {
     const uint32_t remainingPages = static_cast<uint32_t>(pageCount - currentPage + 1);
-    chapterMinutesRemaining = stats.getEstimatedMinutesRemaining(remainingPages);
+    chapterMinutesRemaining = estimateMinutesRemaining(remainingPages);
+  }
+  uint32_t bookMinutesRemaining = 0;
+  if (epub && pageCount > 0 && currentPage <= pageCount) {
+    const size_t bookSize = epub->getBookSize();
+    const size_t currentCumulative = epub->getCumulativeSpineItemSize(currentSpineIndex);
+    const size_t previousCumulative =
+        currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
+    const size_t spineSize = currentCumulative > previousCumulative ? currentCumulative - previousCumulative : 0;
+    if (bookSize > 0 && spineSize > 0) {
+      const size_t futureBytes = bookSize > currentCumulative ? bookSize - currentCumulative : 0;
+      const uint32_t currentChapterRemainingPages = static_cast<uint32_t>(pageCount - currentPage + 1);
+      uint32_t futurePages = static_cast<uint32_t>((futureBytes * static_cast<size_t>(pageCount) + spineSize - 1) /
+                                                   spineSize);
+      bookMinutesRemaining = estimateMinutesRemaining(currentChapterRemainingPages + futurePages);
+    }
   }
 
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, bookmarked,
-                    chapterMinutesRemaining);
+                    chapterMinutesRemaining, bookMinutesRemaining);
+}
+
+uint32_t EpubReaderActivity::estimateMinutesRemaining(const uint32_t remainingPages) const {
+  uint32_t totalSeconds = stats.totalReadingSeconds;
+  uint32_t totalPages = stats.totalPagesTurned;
+  if (sessionStartMs > 0) {
+    const uint32_t elapsedSeconds = static_cast<uint32_t>((millis() - sessionStartMs) / 1000UL);
+    if (elapsedSeconds >= 10) {
+      totalSeconds += elapsedSeconds;
+    }
+  }
+  if (totalPages == 0 || totalSeconds == 0 || remainingPages == 0) {
+    return 0;
+  }
+  const uint32_t remainingSeconds =
+      static_cast<uint32_t>((static_cast<uint64_t>(remainingPages) * totalSeconds) / totalPages);
+  const uint32_t minutes = remainingSeconds / 60;
+  return minutes < 1 ? 1 : minutes;
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {

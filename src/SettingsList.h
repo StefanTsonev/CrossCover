@@ -383,6 +383,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "removeReadBooksFromRecents", StrId::STR_CAT_SYSTEM));
     add(SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
                             "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM));
+    add(SettingInfo::Toggle(StrId::STR_READING_SESSION_SUMMARY, &CrossPointSettings::readingSessionSummary,
+                            "readingSessionSummary",
+                            StrId::STR_CAT_SYSTEM));
 
     // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
     add(SettingInfo::DynamicString(
@@ -429,6 +432,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
     add(SettingInfo::Enum(StrId::STR_TITLE, &CrossPointSettings::statusBarTitle,
                           {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE}, "statusBarTitle",
                           StrId::STR_CUSTOMISE_STATUS_BAR));
+    add(SettingInfo::Enum(StrId::STR_REMAINING_TIME, &CrossPointSettings::statusBarChapterRemainingTime,
+                          {StrId::STR_HIDE, StrId::STR_CHAPTER, StrId::STR_BOOK, StrId::STR_BOTH},
+                          "statusBarChapterRemainingTime", StrId::STR_CUSTOMISE_STATUS_BAR));
     add(SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
                             StrId::STR_CUSTOMISE_STATUS_BAR));
     add(SettingInfo::Enum(StrId::STR_XTC_STATUS_BAR, &CrossPointSettings::xtcStatusBarMode,

@@ -16,6 +16,8 @@
 #include <esp_http_client.h>
 #endif
 
+#include <cctype>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -34,6 +36,7 @@ struct UserBookRecord {
   int id = 0;
   int editionId = 0;
   int pages = 0;
+  int readId = 0;
 };
 
 void setLastErrorDetail(const char* detail) {
@@ -89,6 +92,8 @@ void setGraphqlErrorDetail(const JsonDocument& doc, const char* fallback) {
   }
   setLastErrorDetail(fallback);
 }
+
+HardcoverClient::Error postGraphql(const char* query, String& responseBody);
 
 HardcoverClient::Error parseAuth(const char* body) {
   JsonDocument doc;
@@ -164,6 +169,10 @@ HardcoverClient::Error parseUserBookRecord(const char* body, UserBookRecord& out
   outRecord.id = userBook["id"] | 0;
   outRecord.editionId = userBook["edition_id"] | 0;
   outRecord.pages = userBook["book"]["pages"] | 0;
+  JsonArrayConst reads = userBook["user_book_reads"].as<JsonArrayConst>();
+  if (!reads.isNull() && reads.size() > 0) {
+    outRecord.readId = reads[0]["id"] | 0;
+  }
   return HardcoverClient::OK;
 }
 
@@ -211,7 +220,99 @@ int parseBookId(JsonVariantConst value) {
   return 0;
 }
 
-HardcoverClient::Error parseBookSearch(const char* body, HardcoverBookSearchResult& outBook) {
+bool appendSearchIds(char* out, size_t outSize, size_t& pos, JsonArrayConst ids, int& appendedCount) {
+  if (pos >= outSize) return false;
+  out[pos++] = '[';
+  appendedCount = 0;
+  for (JsonVariantConst idValue : ids) {
+    const int id = parseBookId(idValue);
+    if (id <= 0) continue;
+    const int written = snprintf(out + pos, outSize - pos, "%s%d", appendedCount > 0 ? "," : "", id);
+    if (written <= 0 || static_cast<size_t>(written) >= outSize - pos) return false;
+    pos += static_cast<size_t>(written);
+    appendedCount++;
+  }
+  if (pos >= outSize) return false;
+  out[pos++] = ']';
+  out[pos] = '\0';
+  return appendedCount > 0;
+}
+
+bool containsIgnoreCase(const char* text, const char* needle) {
+  if (!text || !needle || needle[0] == '\0') return false;
+  const size_t needleLen = strlen(needle);
+  for (size_t i = 0; text[i] != '\0'; i++) {
+    size_t j = 0;
+    while (j < needleLen && text[i + j] != '\0' &&
+           std::tolower(static_cast<unsigned char>(text[i + j])) == std::tolower(static_cast<unsigned char>(needle[j]))) {
+      j++;
+    }
+    if (j == needleLen) return true;
+  }
+  return false;
+}
+
+bool looksLikeSetTitle(const char* title, const bool compilation) {
+  if (compilation) return true;
+  return containsIgnoreCase(title, " box set") || containsIgnoreCase(title, "boxed set") ||
+         containsIgnoreCase(title, "4 books") || containsIgnoreCase(title, " collection") ||
+         containsIgnoreCase(title, " bundle");
+}
+
+bool normalizeTitleToken(const char c, char* out, size_t outSize, size_t& pos, bool& pendingSpace) {
+  if (pos + 1 >= outSize) return false;
+  const unsigned char uc = static_cast<unsigned char>(c);
+  if (std::isalnum(uc)) {
+    if (pendingSpace && pos > 0) {
+      out[pos++] = ' ';
+      if (pos + 1 >= outSize) return false;
+    }
+    out[pos++] = static_cast<char>(std::tolower(uc));
+    pendingSpace = false;
+  } else if (c == ':' || c == '-' || c == '(' || c == '[') {
+    return false;
+  } else if (pos > 0) {
+    pendingSpace = true;
+  }
+  out[pos] = '\0';
+  return true;
+}
+
+void normalizeTitle(const char* title, char* out, size_t outSize) {
+  if (!out || outSize == 0) return;
+  out[0] = '\0';
+  if (!title) return;
+  size_t pos = 0;
+  bool pendingSpace = false;
+  for (size_t i = 0; title[i] != '\0'; i++) {
+    if (!normalizeTitleToken(title[i], out, outSize, pos, pendingSpace)) {
+      break;
+    }
+  }
+  while (pos > 0 && out[pos - 1] == ' ') {
+    pos--;
+  }
+  out[pos] = '\0';
+}
+
+bool titlesMatchClosely(const char* expectedTitle, const char* candidateTitle) {
+  if (!expectedTitle || expectedTitle[0] == '\0') return true;
+  char expected[96];
+  char candidate[96];
+  normalizeTitle(expectedTitle, expected, sizeof(expected));
+  normalizeTitle(candidateTitle, candidate, sizeof(candidate));
+  if (expected[0] == '\0' || candidate[0] == '\0') return false;
+  const size_t expectedLen = strlen(expected);
+  const size_t candidateLen = strlen(candidate);
+  const size_t prefixLen = std::min(expectedLen, candidateLen);
+  if (prefixLen < 5) return false;
+  return strncmp(expected, candidate, prefixLen) == 0 || strstr(candidate, expected) != nullptr ||
+         strstr(expected, candidate) != nullptr;
+}
+
+HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTitle,
+                                        std::vector<HardcoverBookSearchResult>& outBooks, const int limit) {
+  outBooks.clear();
   JsonDocument doc;
   JsonDocument filter;
   filter["data"]["search"]["ids"][0] = true;
@@ -237,12 +338,79 @@ HardcoverClient::Error parseBookSearch(const char* body, HardcoverBookSearchResu
     return HardcoverClient::API_ERROR;
   }
 
-  JsonObjectConst search = doc["data"]["search"].as<JsonObjectConst>();
-  outBook.bookId = parseBookId(search["ids"][0]);
-  if (outBook.bookId <= 0) {
+  JsonArrayConst ids = doc["data"]["search"]["ids"].as<JsonArrayConst>();
+  if (ids.isNull() || ids.size() == 0) {
     setLastErrorDetail("No matching book found");
     return HardcoverClient::API_ERROR;
   }
+
+  char query[384];
+  size_t pos = 0;
+  const int prefixLen = snprintf(query, sizeof(query), "query { books(where: {id: {_in: ");
+  if (prefixLen <= 0 || static_cast<size_t>(prefixLen) >= sizeof(query)) return HardcoverClient::LOW_MEMORY;
+  pos = static_cast<size_t>(prefixLen);
+  int idCount = 0;
+  if (!appendSearchIds(query, sizeof(query), pos, ids, idCount)) return HardcoverClient::LOW_MEMORY;
+  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
+                                 "}}, limit: %d) { id title compilation } }", idCount);
+  if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return HardcoverClient::LOW_MEMORY;
+
+  String detailsBody;
+  HardcoverClient::Error err = postGraphql(query, detailsBody);
+  if (err != HardcoverClient::OK) return err;
+
+  JsonDocument detailsDoc;
+  JsonDocument detailsFilter;
+  detailsFilter["data"]["books"][0]["id"] = true;
+  detailsFilter["data"]["books"][0]["title"] = true;
+  detailsFilter["data"]["books"][0]["compilation"] = true;
+  detailsFilter["errors"][0]["message"] = true;
+  const DeserializationError detailsJsonError =
+      deserializeJson(detailsDoc, detailsBody.c_str(), DeserializationOption::Filter(detailsFilter));
+  if (detailsJsonError) {
+    setLastErrorDetail("Invalid book detail response");
+    return HardcoverClient::JSON_ERROR;
+  }
+  if (hasGraphqlErrors(detailsDoc)) {
+    setGraphqlErrorDetail(detailsDoc, "GraphQL book detail error");
+    return HardcoverClient::API_ERROR;
+  }
+
+  JsonArrayConst books = detailsDoc["data"]["books"].as<JsonArrayConst>();
+  for (JsonVariantConst idValue : ids) {
+    const int id = parseBookId(idValue);
+    for (JsonObjectConst book : books) {
+      const int bookId = book["id"] | 0;
+      const char* title = book["title"] | "";
+      const bool compilation = book["compilation"] | false;
+      if (bookId == id && !looksLikeSetTitle(title, compilation)) {
+        HardcoverBookSearchResult result;
+        result.bookId = id;
+        result.title = title;
+        if (titlesMatchClosely(expectedTitle, title)) {
+          outBooks.insert(outBooks.begin(), result);
+        } else {
+          outBooks.push_back(result);
+        }
+        break;
+      }
+    }
+    if (static_cast<int>(outBooks.size()) >= limit) break;
+  }
+
+  if (outBooks.empty()) {
+    setLastErrorDetail("No matching book found");
+    return HardcoverClient::API_ERROR;
+  }
+  return HardcoverClient::OK;
+}
+
+HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTitle,
+                                        HardcoverBookSearchResult& outBook) {
+  std::vector<HardcoverBookSearchResult> books;
+  const HardcoverClient::Error err = parseBookSearch(body, expectedTitle, books, 1);
+  if (err != HardcoverClient::OK) return err;
+  outBook = books[0];
   return HardcoverClient::OK;
 }
 
@@ -431,7 +599,7 @@ HardcoverClient::Error findUserBookRecord(const int bookId, UserBookRecord& outR
   char query[320];
   snprintf(query, sizeof(query),
            "query { user_books(where: {user_id: {_eq: %d}, book_id: {_eq: %d}}, limit: 1) { id edition_id book { "
-           "pages } } }",
+           "pages } user_book_reads(order_by: {started_at: desc}, limit: 1) { id } } }",
            userId,
            bookId);
   String body;
@@ -482,7 +650,11 @@ HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressP
   }
 
   char query[320];
-  if (userBook.editionId > 0) {
+  if (userBook.readId > 0) {
+    snprintf(query, sizeof(query),
+             "mutation { update_user_book_read(id: %d, object: {progress_pages: %d}) { id } }",
+             userBook.readId, progressPages);
+  } else if (userBook.editionId > 0) {
     snprintf(query, sizeof(query),
              "mutation { insert_user_book_read(user_book_id: %d, user_book_read: {progress_pages: %d, edition_id: %d}) "
              "{ id } }",
@@ -549,19 +721,49 @@ HardcoverClient::Error HardcoverClient::searchBook(const std::string& searchQuer
   pos = static_cast<size_t>(prefixLen);
   if (!appendGraphqlStringLiteral(query, sizeof(query), pos, searchQuery.c_str())) return LOW_MEMORY;
   const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
-                                 ", query_type: \"Book\", per_page: 1, page: 1) { ids } }");
+                                 ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
   if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return LOW_MEMORY;
 
   String body;
   Error err = postGraphql(query, body);
-  return err == OK ? parseBookSearch(body.c_str(), outBook) : err;
+  return err == OK ? parseBookSearch(body.c_str(), "", outBook) : err;
 }
 
 HardcoverClient::Error HardcoverClient::searchBook(const std::string& title, const std::string& author,
                                                    HardcoverBookSearchResult& outBook) {
+  std::vector<HardcoverBookSearchResult> books;
+  const Error err = searchBooks(title, author, books, 1);
+  if (err != OK) return err;
+  outBook = books[0];
+  return OK;
+}
+
+HardcoverClient::Error HardcoverClient::searchBooks(const std::string& title, const std::string& author,
+                                                    std::vector<HardcoverBookSearchResult>& outBooks,
+                                                    const int limit) {
+  outBooks.clear();
   char searchText[192];
   snprintf(searchText, sizeof(searchText), "%s%s%s", title.c_str(), author.empty() ? "" : " ", author.c_str());
-  return searchBook(searchText, outBook);
+  if (title.empty()) {
+    HardcoverBookSearchResult book;
+    const Error err = searchBook(searchText, book);
+    if (err == OK) outBooks.push_back(book);
+    return err;
+  }
+
+  char query[384];
+  size_t pos = 0;
+  const int prefixLen = snprintf(query, sizeof(query), "query { search(query: ");
+  if (prefixLen <= 0 || static_cast<size_t>(prefixLen) >= sizeof(query)) return LOW_MEMORY;
+  pos = static_cast<size_t>(prefixLen);
+  if (!appendGraphqlStringLiteral(query, sizeof(query), pos, searchText)) return LOW_MEMORY;
+  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
+                                 ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
+  if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return LOW_MEMORY;
+
+  String body;
+  Error err = postGraphql(query, body);
+  return err == OK ? parseBookSearch(body.c_str(), "", outBooks, limit) : err;
 }
 
 const char* HardcoverClient::errorString(Error error) {

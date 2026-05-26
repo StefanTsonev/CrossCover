@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.3.1] - 2026-05-26
+
+### Added
+- Added a Hardcover auto-link result picker so the reader can choose from up to five matches before linking.
+- Added a configurable Hardcover auto-sync progress threshold.
+- Added status bar remaining-time modes for chapter, book, both, or hidden.
+- Added a reading session summary after leaving an EPUB.
+- Added a System setting for turning the EPUB reading session summary on or off.
+
+### Changed
+- Moved the Hardcover auto-sync threshold into the Hardcover settings screen and limited it to 1%, 5%, 10%, or 15%.
+
+### Fixed
+- Fixed Hardcover progress sync to update the latest read progress instead of creating a new read date on every sync.
+- Fixed Hardcover auto-link to skip likely multi-book set/bundle results and sync smaller progress changes on reader close.
+- Fixed the reading session summary layout so each field renders on its own line.
+- Fixed Hardcover library launch from memory-heavy Home themes by releasing cached cover/carousel buffers before opening the network screen.
+
 ## [v1.3.0] - 2026-05-21
 
 ### Added

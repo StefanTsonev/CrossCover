@@ -68,19 +68,41 @@ void HardcoverBookActivity::onEnter() {
 
 void HardcoverBookActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    if (selectingSearchResult) {
+      selectingSearchResult = false;
+      searchResults.clear();
+      selectedSearchIndex = 0;
+      requestUpdate();
+      return;
+    }
     finish();
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (selectingSearchResult) {
+      confirmSearchResult();
+      return;
+    }
     handleSelection();
     return;
   }
   buttonNavigator.onNext([this] {
-    selectedIndex = (selectedIndex + 1) % Count;
+    if (selectingSearchResult) {
+      if (searchResults.empty()) return;
+      selectedSearchIndex = (selectedSearchIndex + 1) % static_cast<int>(searchResults.size());
+    } else {
+      selectedIndex = (selectedIndex + 1) % Count;
+    }
     requestUpdate();
   });
   buttonNavigator.onPrevious([this] {
-    selectedIndex = (selectedIndex + Count - 1) % Count;
+    if (selectingSearchResult) {
+      if (searchResults.empty()) return;
+      selectedSearchIndex =
+          (selectedSearchIndex + static_cast<int>(searchResults.size()) - 1) % static_cast<int>(searchResults.size());
+    } else {
+      selectedIndex = (selectedIndex + Count - 1) % Count;
+    }
     requestUpdate();
   });
 }
@@ -199,17 +221,36 @@ void HardcoverBookActivity::runAutoLink() {
 
   GUI.drawPopup(renderer, tr(STR_HARDCOVER_SEARCHING));
 
-  HardcoverBookSearchResult result;
-  const auto error = HardcoverClient::searchBook(title, author, result);
-  if (error == HardcoverClient::OK && result.bookId > 0 && HARDCOVER_LINKS.setLink(epubPath, result.bookId, title)) {
-    bookId = result.bookId;
-    autoSync = false;
-    lastSyncedProgress = -1;
-    GUI.drawPopup(renderer, tr(STR_HARDCOVER_AUTO_LINKED));
+  searchResults.clear();
+  const auto error = HardcoverClient::searchBooks(title, author, searchResults, 5);
+  if (error == HardcoverClient::OK && !searchResults.empty()) {
+    selectingSearchResult = true;
+    selectedSearchIndex = 0;
   } else {
     char errorBuffer[128];
     GUI.drawPopup(renderer, error == HardcoverClient::OK ? tr(STR_HARDCOVER_AUTO_LINK_FAILED)
                                                          : hardcoverErrorMessage(error, errorBuffer, sizeof(errorBuffer)));
+  }
+  requestUpdate();
+}
+
+void HardcoverBookActivity::confirmSearchResult() {
+  if (selectedSearchIndex < 0 || selectedSearchIndex >= static_cast<int>(searchResults.size())) {
+    selectingSearchResult = false;
+    requestUpdate();
+    return;
+  }
+
+  const HardcoverBookSearchResult& result = searchResults[selectedSearchIndex];
+  if (result.bookId > 0 && HARDCOVER_LINKS.setLink(epubPath, result.bookId, title)) {
+    bookId = result.bookId;
+    autoSync = false;
+    lastSyncedProgress = -1;
+    selectingSearchResult = false;
+    searchResults.clear();
+    GUI.drawPopup(renderer, tr(STR_HARDCOVER_AUTO_LINKED));
+  } else {
+    GUI.drawPopup(renderer, tr(STR_HARDCOVER_AUTO_LINK_FAILED));
   }
   requestUpdate();
 }
@@ -284,6 +325,22 @@ void HardcoverBookActivity::render(RenderLock&&) {
   const int contentTop =
       screen.y + metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
   const int contentHeight = screen.height - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  if (selectingSearchResult) {
+    GUI.drawList(
+        renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, static_cast<int>(searchResults.size()),
+        selectedSearchIndex,
+        [this](int index) {
+          const auto& result = searchResults[index];
+          return result.title.empty() ? std::string(tr(STR_UNNAMED)) : result.title;
+        },
+        nullptr, nullptr,
+        [this](int index) { return std::to_string(searchResults[index].bookId); }, true);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+    renderer.displayBuffer();
+    return;
+  }
+
   int listTop = contentTop;
   int listHeight = contentHeight;
   if (!HARDCOVER_STORE.hasApiToken()) {

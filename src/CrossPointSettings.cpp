@@ -297,6 +297,20 @@ uint8_t CrossPointSettings::sleepScreenModeToStorage(const uint8_t mode) {
   return 0;
 }
 
+uint8_t CrossPointSettings::normalizeHardcoverAutoSyncThreshold(const uint8_t value) {
+  constexpr uint8_t thresholds[] = {1, 5, 10, 15};
+  uint8_t best = thresholds[0];
+  uint8_t bestDiff = UINT8_MAX;
+  for (const uint8_t candidate : thresholds) {
+    const uint8_t diff = candidate > value ? candidate - value : value - candidate;
+    if (diff < bestDiff) {
+      best = candidate;
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
+
 bool CrossPointSettings::saveToFile() const {
   Storage.mkdir("/.crosspoint");
   return JsonSettingsIO::saveSettings(*this, SETTINGS_FILE_JSON);

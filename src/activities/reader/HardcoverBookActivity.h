@@ -2,8 +2,10 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "activities/Activity.h"
+#include "HardcoverClient.h"
 #include "util/ButtonNavigator.h"
 
 class HardcoverBookActivity final : public Activity {
@@ -41,11 +43,15 @@ class HardcoverBookActivity final : public Activity {
   int bookId = 0;
   int lastSyncedProgress = -1;
   bool autoSync = false;
+  bool selectingSearchResult = false;
   int selectedIndex = 0;
+  int selectedSearchIndex = 0;
+  std::vector<HardcoverBookSearchResult> searchResults;
   ButtonNavigator buttonNavigator;
 
   void handleSelection();
   void handleLinkInput(const std::string& input);
   void runAutoLink();
+  void confirmSearchResult();
   void runManualSync(Action action, int rating = 0);
 };

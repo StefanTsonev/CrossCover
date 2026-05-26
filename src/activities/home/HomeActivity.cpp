@@ -1588,6 +1588,11 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onHardcoverOpen() {
+  freeCoverBuffer();
+  coverBufferStored = false;
+  coverRendered = false;
+  freeCarouselFrames();
+  carouselWarmupPending = false;
   startActivityForResult(std::make_unique<HardcoverLibraryActivity>(renderer, mappedInput),
                          [this](const ActivityResult&) { requestUpdate(); });
 }

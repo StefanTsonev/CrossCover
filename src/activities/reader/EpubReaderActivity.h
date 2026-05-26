@@ -31,6 +31,7 @@ class EpubReaderActivity final : public Activity {
   BookReadingStats stats;
   GlobalReadingStats globalStats;
   unsigned long sessionStartMs = 0UL;
+  uint32_t sessionStartPageTurns = 0;
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
@@ -103,6 +104,7 @@ class EpubReaderActivity final : public Activity {
   void executeLongPressMenuAction();
   void pageTurn(bool isForwardTurn);
   float getCurrentBookProgressPercent() const;
+  uint32_t estimateMinutesRemaining(uint32_t remainingPages) const;
   void initializeCompletionPromptTrigger();
   bool isAtOrPastCompletionTrigger() const;
   void queueCompletionPromptIfNeeded();

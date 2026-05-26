@@ -13,7 +13,7 @@ class HardcoverSettingsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum Item : int { ImportKey = 0, Authenticate = 1, ClearKey = 2, Count = 3 };
+  enum Item : int { ImportKey = 0, Authenticate = 1, AutoSyncThreshold = 2, ClearKey = 3, Count = 4 };
   int selectedIndex = 0;
   ButtonNavigator buttonNavigator;
 

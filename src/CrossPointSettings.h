@@ -61,6 +61,13 @@ class CrossPointSettings {
     STATUS_BAR_PROGRESS_BAR_THICKNESS_COUNT
   };
   enum STATUS_BAR_TITLE { BOOK_TITLE = 0, CHAPTER_TITLE = 1, HIDE_TITLE = 2, STATUS_BAR_TITLE_COUNT };
+  enum STATUS_BAR_REMAINING_TIME {
+    REMAINING_TIME_HIDE = 0,
+    REMAINING_TIME_CHAPTER = 1,
+    REMAINING_TIME_BOOK = 2,
+    REMAINING_TIME_BOTH = 3,
+    STATUS_BAR_REMAINING_TIME_COUNT
+  };
   enum XTC_STATUS_BAR_MODE {
     XTC_STATUS_BAR_HIDE = 0,
     XTC_STATUS_BAR_BOTTOM = 1,
@@ -264,7 +271,9 @@ class CrossPointSettings {
   uint8_t statusBarProgressBar = HIDE_PROGRESS;
   uint8_t statusBarProgressBarThickness = PROGRESS_BAR_NORMAL;
   uint8_t statusBarTitle = CHAPTER_TITLE;
+  uint8_t statusBarChapterRemainingTime = REMAINING_TIME_CHAPTER;
   uint8_t statusBarBattery = 1;
+  uint8_t hardcoverAutoSyncThresholdPercent = 1;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
   // Clock display in status bar (X3 only, requires DS3231 RTC)
   uint8_t statusBarClock = 0;
@@ -358,6 +367,8 @@ class CrossPointSettings {
   uint8_t removeReadBooksFromRecents = 0;
   // Move epub to /Read/ folder on SD card when marked as finished (0 = disabled, 1 = enabled)
   uint8_t moveFinishedToReadFolder = 0;
+  // Show a reading session summary after leaving an EPUB reader session.
+  uint8_t readingSessionSummary = 1;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Long-press Confirm (menu button) quick action in reader (0 = off)
@@ -414,6 +425,7 @@ class CrossPointSettings {
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);
   static uint8_t sleepScreenStorageToMode(uint8_t storedValue);
   static uint8_t sleepScreenModeToStorage(uint8_t mode);
+  static uint8_t normalizeHardcoverAutoSyncThreshold(uint8_t value);
 #ifdef SIMULATOR
   static bool verifySleepTimeoutMigrationContract();
   static bool verifySleepScreenMigrationContract();

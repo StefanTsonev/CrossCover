@@ -6,16 +6,20 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 
 #include "HardcoverClient.h"
 #include "HardcoverCredentialStore.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
-const StrId kMenuItems[3] = {StrId::STR_HARDCOVER_API_KEY, StrId::STR_AUTHENTICATE, StrId::STR_CLEAR};
+const StrId kMenuItems[4] = {StrId::STR_HARDCOVER_API_KEY, StrId::STR_AUTHENTICATE,
+                             StrId::STR_HARDCOVER_AUTO_SYNC_THRESHOLD, StrId::STR_CLEAR};
+constexpr uint8_t kAutoSyncThresholds[] = {1, 5, 10, 15};
 
 const char* hardcoverErrorMessage(HardcoverClient::Error error, char* buffer, const size_t bufferSize) {
   if (!HardcoverClient::lastErrorDetail()[0]) {
@@ -35,11 +39,23 @@ int drawWrappedLineBlock(const GfxRenderer& renderer, const int fontId, const in
   }
   return y;
 }
+
+uint8_t nextAutoSyncThreshold(uint8_t value) {
+  value = CrossPointSettings::normalizeHardcoverAutoSyncThreshold(value);
+  for (size_t i = 0; i < std::size(kAutoSyncThresholds); i++) {
+    if (kAutoSyncThresholds[i] == value) {
+      return kAutoSyncThresholds[(i + 1) % std::size(kAutoSyncThresholds)];
+    }
+  }
+  return kAutoSyncThresholds[0];
 }
+}  // namespace
 
 void HardcoverSettingsActivity::onEnter() {
   Activity::onEnter();
   HARDCOVER_STORE.loadFromFile();
+  SETTINGS.hardcoverAutoSyncThresholdPercent =
+      CrossPointSettings::normalizeHardcoverAutoSyncThreshold(SETTINGS.hardcoverAutoSyncThresholdPercent);
   requestUpdate();
 }
 
@@ -87,6 +103,11 @@ void HardcoverSettingsActivity::handleSelection() {
                   error == HardcoverClient::OK ? tr(STR_HARDCOVER_AUTH_READY)
                                                : hardcoverErrorMessage(error, errorBuffer, sizeof(errorBuffer)));
     requestUpdate();
+  } else if (selectedIndex == AutoSyncThreshold) {
+    SETTINGS.hardcoverAutoSyncThresholdPercent =
+        nextAutoSyncThreshold(SETTINGS.hardcoverAutoSyncThresholdPercent);
+    SETTINGS.saveToFile();
+    requestUpdate();
   } else if (selectedIndex == ClearKey) {
     HARDCOVER_STORE.clearApiToken();
     requestUpdate();
@@ -120,6 +141,7 @@ void HardcoverSettingsActivity::render(RenderLock&&) {
       [](int index) {
         if (index == ImportKey) return HARDCOVER_STORE.hasApiToken() ? std::string("******") : std::string(tr(STR_NOT_SET));
         if (index == Authenticate) return HARDCOVER_STORE.getUsername();
+        if (index == AutoSyncThreshold) return std::to_string(SETTINGS.hardcoverAutoSyncThresholdPercent) + "%";
         return std::string("");
       },
       true);

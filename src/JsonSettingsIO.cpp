@@ -190,6 +190,9 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   // Language -- managed by LanguageSelectActivity, not in SettingsList.
   // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
   doc["language"] = (s.language < getLanguageCount()) ? LANGUAGE_CODES[s.language] : "EN";
+  // Hardcover settings live in the Hardcover sub-menu, not the generic System list.
+  doc["hardcoverAutoSyncThresholdPercent"] =
+      CrossPointSettings::normalizeHardcoverAutoSyncThreshold(s.hardcoverAutoSyncThresholdPercent);
 
   String json;
   serializeJson(doc, json);
@@ -319,6 +322,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   if (doc["language"].is<const char*>()) {
     s.language = static_cast<uint8_t>(I18n::languageFromCode(doc["language"].as<const char*>()));
   }
+  s.hardcoverAutoSyncThresholdPercent = CrossPointSettings::normalizeHardcoverAutoSyncThreshold(
+      doc["hardcoverAutoSyncThresholdPercent"] | s.hardcoverAutoSyncThresholdPercent);
 
   LOG_DBG("CPS", "Settings loaded from file");
 

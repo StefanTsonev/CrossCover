@@ -41,10 +41,19 @@ void AlertActivity::render(RenderLock&&) {
 
   int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
 
-  auto bodyLines = renderer.wrappedText(UI_10_FONT_ID, body.c_str(), contentWidth, 10);
-  for (const auto& line : bodyLines) {
-    renderer.drawText(UI_10_FONT_ID, x, y, line.c_str());
-    y += lineHeight;
+  size_t start = 0;
+  while (start <= body.size()) {
+    const size_t end = body.find('\n', start);
+    const std::string line = body.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    const auto wrapped = renderer.wrappedText(UI_10_FONT_ID, line.c_str(), contentWidth, 10);
+    for (const auto& wrappedLine : wrapped) {
+      renderer.drawText(UI_10_FONT_ID, x, y, wrappedLine.c_str());
+      y += lineHeight;
+    }
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + 1;
   }
 
   const auto labels = mappedInput.mapLabels(goHomeOnBack ? tr(STR_HOME) : tr(STR_BACK), "", "", "");

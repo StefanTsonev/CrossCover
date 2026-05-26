@@ -714,7 +714,8 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool isPageBookmarked, const uint32_t chapterMinutesRemaining) const {
+                              const bool isPageBookmarked, const uint32_t chapterMinutesRemaining,
+                              const uint32_t bookMinutesRemaining) const {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -797,10 +798,21 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   }
 
   int remainingTimeWidth = 0;
-  if (chapterMinutesRemaining > 0) {
-    char remainingTimeText[24];
-    snprintf(remainingTimeText, sizeof(remainingTimeText), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
-             static_cast<unsigned>(chapterMinutesRemaining));
+  const bool showChapterEta =
+      SETTINGS.statusBarChapterRemainingTime == CrossPointSettings::REMAINING_TIME_CHAPTER ||
+      SETTINGS.statusBarChapterRemainingTime == CrossPointSettings::REMAINING_TIME_BOTH;
+  const bool showBookEta = SETTINGS.statusBarChapterRemainingTime == CrossPointSettings::REMAINING_TIME_BOOK ||
+                           SETTINGS.statusBarChapterRemainingTime == CrossPointSettings::REMAINING_TIME_BOTH;
+  if ((showChapterEta && chapterMinutesRemaining > 0) || (showBookEta && bookMinutesRemaining > 0)) {
+    char remainingTimeText[40];
+    if (showChapterEta && showBookEta && chapterMinutesRemaining > 0 && bookMinutesRemaining > 0) {
+      snprintf(remainingTimeText, sizeof(remainingTimeText), "C%um B%um",
+               static_cast<unsigned>(chapterMinutesRemaining), static_cast<unsigned>(bookMinutesRemaining));
+    } else {
+      const uint32_t minutes = showBookEta ? bookMinutesRemaining : chapterMinutesRemaining;
+      snprintf(remainingTimeText, sizeof(remainingTimeText), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
+               static_cast<unsigned>(minutes));
+    }
     remainingTimeWidth = renderer.getTextWidth(SMALL_FONT_ID, remainingTimeText);
     constexpr int remainingTimeGap = 8;
     renderer.drawText(SMALL_FONT_ID,
