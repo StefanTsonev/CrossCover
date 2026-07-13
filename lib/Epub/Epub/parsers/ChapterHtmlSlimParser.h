@@ -75,6 +75,7 @@ class ChapterHtmlSlimParser {
   bool lowMemoryImageFallback = false;
   bool lowMemoryAbort = false;
   bool attemptedTextLayoutFontCacheRelease = false;
+  bool constrainedTextLayout = false;
   EpubRenderMode renderMode = EpubRenderMode::CrossInkDefault;
   std::string previewAnchor;
   uint16_t previewMaxPages = 0;

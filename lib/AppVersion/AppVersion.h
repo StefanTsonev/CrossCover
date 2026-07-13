@@ -6,6 +6,10 @@
 #define CROSSINK_VERSION "dev"
 #endif
 
+#ifndef CROSSINK_DISPLAY_VERSION
+#define CROSSINK_DISPLAY_VERSION "1.4.0"
+#endif
+
 #ifndef CROSSINK_BUILD_ENV
 #define CROSSINK_BUILD_ENV "unknown"
 #endif

@@ -224,6 +224,7 @@ class EpubReaderActivity final : public Activity {
   bool shouldQueueCompletionPromptOnChapterExit() const;
   void queueCompletionPromptIfNeeded();
   void setBookCompleted(bool isCompleted);
+  void openHardcoverMenu();
   void showCompletedFeedback(bool isCompleted);
   void showTiltPageTurnFeedback(bool enabled);
   void showRenderModeToast(uint8_t renderMode);

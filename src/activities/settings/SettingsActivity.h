@@ -20,6 +20,7 @@ enum class SettingAction {
   RemapFrontButtonsReader,
   CustomiseStatusBar,
   KOReaderSync,
+  Hardcover,
   OPDSBrowser,
   DisplaySleepScreen,
   ReaderFontOptions,
@@ -215,7 +216,8 @@ inline uint8_t settingEnumRawValueForDisplayIndex(const SettingInfo& setting, ui
 }
 
 inline bool settingShowsNavigationCaret(const SettingInfo& setting) {
-  return setting.type == SettingType::SUBMENU || setting.action == SettingAction::CustomiseStatusBar;
+  return setting.type == SettingType::SUBMENU || setting.action == SettingAction::CustomiseStatusBar ||
+         setting.action == SettingAction::Hardcover;
 }
 
 class SettingsActivity final : public Activity {

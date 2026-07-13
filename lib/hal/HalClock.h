@@ -28,6 +28,9 @@ class HalClock {
   // True if the DS3231 RTC is present on this device
   bool isAvailable() const { return _available; }
 
+  // True when the system clock is recent enough for TLS certificate checks.
+  bool isSystemTimeValid() const;
+
   // Get current hour (0-23) and minute (0-59).
   // Returns false if RTC is not available.
   bool getTime(uint8_t& hour, uint8_t& minute) const;
@@ -50,9 +53,10 @@ class HalClock {
   // Returns false if RTC is not available or the RTC date is invalid.
   bool formatDate(char* buf, size_t bufSize, uint8_t utcOffsetQuarterHoursBiased = 48) const;
 
-  // Sync the DS3231 RTC from an NTP server. Requires WiFi to be connected.
+  // Sync the system clock from an NTP server and, when present, copy it to the
+  // DS3231 RTC. Requires WiFi to be connected.
   // Blocks for up to ~5s while waiting for SNTP response.
-  // Returns true if the RTC was successfully updated.
+  // Returns true if the system clock was successfully synchronized.
   //
   // Debouncing (skip if already synced once) is enforced by the caller, not here,
   // so the HAL stays free of any app-layer settings dependency.

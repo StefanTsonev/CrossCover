@@ -32,8 +32,14 @@ constexpr size_t PARSE_BUFFER_SIZE = 1024;
 // Initial slab for the parse arena. Covers both style stacks (~2 KB) with headroom for growth.
 constexpr size_t PARSE_ARENA_SLAB_SIZE = 4 * 1024;
 constexpr size_t IMAGE_EXTRACT_CHUNK_SIZE = 1024;
-constexpr uint32_t MIN_FREE_HEAP_FOR_TEXT_LAYOUT = 44 * 1024;
-constexpr uint32_t MIN_MAX_ALLOC_FOR_TEXT_LAYOUT = 32 * 1024;
+// Crossing the pressure threshold switches to smaller, bounded layout batches.
+// Abort only at the critical threshold: the parser's current scratch arenas grow
+// in 4 KB slabs, so requiring a 32 KB contiguous block rejects recoverable heap
+// fragmentation after network activity without protecting a real allocation.
+constexpr uint32_t TEXT_LAYOUT_PRESSURE_MIN_FREE = 44 * 1024;
+constexpr uint32_t TEXT_LAYOUT_PRESSURE_MIN_MAX_ALLOC = 32 * 1024;
+constexpr uint32_t TEXT_LAYOUT_CRITICAL_MIN_FREE = 40 * 1024;
+constexpr uint32_t TEXT_LAYOUT_CRITICAL_MIN_MAX_ALLOC = 24 * 1024;
 constexpr uint32_t MIN_FREE_HEAP_FOR_TABLE_BUFFERING = 64 * 1024;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_TABLE_BUFFERING = 40 * 1024;
 constexpr size_t DEFAULT_BUFFERED_WORDS_BEFORE_LAYOUT = 350;
@@ -300,7 +306,7 @@ bool ChapterHtmlSlimParser::shouldAbortForLowMemory(const char* stage) {
   }
 
   auto heap = MemoryBudget::snapshot();
-  if (heap.freeHeap >= MIN_FREE_HEAP_FOR_TEXT_LAYOUT && heap.maxAllocHeap >= MIN_MAX_ALLOC_FOR_TEXT_LAYOUT) {
+  if (MemoryBudget::hasHeap(heap, TEXT_LAYOUT_PRESSURE_MIN_FREE, TEXT_LAYOUT_PRESSURE_MIN_MAX_ALLOC)) {
     return false;
   }
 
@@ -311,14 +317,23 @@ bool ChapterHtmlSlimParser::shouldAbortForLowMemory(const char* stage) {
       LOG_DBG("EHP", "Released SD font caches before %s: free=%u->%u maxAlloc=%u->%u", stage, heap.freeHeap,
               afterRelease.freeHeap, heap.maxAllocHeap, afterRelease.maxAllocHeap);
       heap = afterRelease;
-      if (heap.freeHeap >= MIN_FREE_HEAP_FOR_TEXT_LAYOUT && heap.maxAllocHeap >= MIN_MAX_ALLOC_FOR_TEXT_LAYOUT) {
+      if (MemoryBudget::hasHeap(heap, TEXT_LAYOUT_PRESSURE_MIN_FREE, TEXT_LAYOUT_PRESSURE_MIN_MAX_ALLOC)) {
         return false;
       }
     }
   }
 
-  LOG_ERR("EHP", "Low heap during %s (%u free, %u max alloc); aborting section build", stage, heap.freeHeap,
-          heap.maxAllocHeap);
+  if (MemoryBudget::hasHeap(heap, TEXT_LAYOUT_CRITICAL_MIN_FREE, TEXT_LAYOUT_CRITICAL_MIN_MAX_ALLOC)) {
+    if (!constrainedTextLayout) {
+      constrainedTextLayout = true;
+      LOG_INF("EHP", "Constrained text layout during %s (%u free, %u max alloc); using smaller batches", stage,
+              heap.freeHeap, heap.maxAllocHeap);
+    }
+    return false;
+  }
+
+  LOG_ERR("EHP", "Critical heap during %s (%u free, %u max alloc, need %u/%u); aborting section build", stage,
+          heap.freeHeap, heap.maxAllocHeap, TEXT_LAYOUT_CRITICAL_MIN_FREE, TEXT_LAYOUT_CRITICAL_MIN_MAX_ALLOC);
   lowMemoryAbort = true;
   return true;
 }
@@ -333,7 +348,7 @@ bool ChapterHtmlSlimParser::startNewPage(const char* reason) {
   }
 
   const auto heap = MemoryBudget::snapshot();
-  if (heap.freeHeap >= MIN_FREE_HEAP_FOR_TEXT_LAYOUT && heap.maxAllocHeap >= PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC) {
+  if (heap.freeHeap >= TEXT_LAYOUT_PRESSURE_MIN_FREE && heap.maxAllocHeap >= PAGE_ELEMENT_RESERVE_MIN_MAX_ALLOC) {
     currentPage->elements.reserve(INITIAL_PAGE_ELEMENT_RESERVE);
   }
   currentPageNextY = 0;
@@ -498,6 +513,9 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 }
 
 size_t ChapterHtmlSlimParser::bufferedWordsBeforeLayoutLimit() const {
+  if (constrainedTextLayout) {
+    return COMBINED_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT;
+  }
   if (bionicReadingEnabled && guideReadingEnabled) {
     return COMBINED_READING_AID_BUFFERED_WORDS_BEFORE_LAYOUT;
   }
@@ -508,6 +526,9 @@ size_t ChapterHtmlSlimParser::bufferedWordsBeforeLayoutLimit() const {
 }
 
 uint16_t ChapterHtmlSlimParser::textRunBytesBeforeLayoutLimit() const {
+  if (constrainedTextLayout) {
+    return COMBINED_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT;
+  }
   if (bionicReadingEnabled && guideReadingEnabled) {
     return COMBINED_READING_AID_TEXT_RUN_BYTES_BEFORE_LAYOUT;
   }
@@ -1051,7 +1072,8 @@ void ChapterHtmlSlimParser::fallbackCurrentTableBufferIfNeeded(const char* stage
   }
 
   const auto heap = MemoryBudget::snapshot();
-  if (!MemoryBudget::hasHeap(heap, MIN_FREE_HEAP_FOR_TABLE_BUFFERING, MIN_MAX_ALLOC_FOR_TABLE_BUFFERING)) {
+  if (constrainedTextLayout ||
+      !MemoryBudget::hasHeap(heap, MIN_FREE_HEAP_FOR_TABLE_BUFFERING, MIN_MAX_ALLOC_FOR_TABLE_BUFFERING)) {
     fallbackCurrentTableBufferToParagraphs(stage);
   }
 }

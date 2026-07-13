@@ -187,6 +187,7 @@ EpubReaderMenuActivity::TabMenuItems EpubReaderMenuActivity::buildMenuItems(bool
       {MenuAction::TOGGLE_COMPLETED, isBookCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
 
   bookmarkItems.push_back({MenuAction::SYNC, StrId::STR_SYNC_PROGRESS});
+  bookmarkItems.push_back({MenuAction::HARDCOVER, StrId::STR_HARDCOVER});
   bookmarkItems.push_back({MenuAction::NEARBY_POSITION_SYNC, StrId::STR_NEARBY_POSITION_SYNC});
   bookmarkItems.push_back({MenuAction::SAVE_CLIPPING, StrId::STR_SAVE_CLIPPING});
   if (hasClippings) {

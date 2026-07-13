@@ -74,6 +74,7 @@ class HomeActivity final : public Activity {
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
+  void onHardcoverOpen();
   void onReadingStatsOpen();
   void onSavedItemsOpen();
 

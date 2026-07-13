@@ -13,6 +13,7 @@
 #include <MemoryBudget.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <cctype>
 #include <cstring>
@@ -34,6 +35,8 @@
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
 #include "GlobalActions.h"
+#include "HardcoverBookActivity.h"
+#include "HardcoverClient.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
@@ -1853,6 +1856,19 @@ void EpubReaderActivity::onExit() {
   CLIPPINGS.unload();
   section.reset();
 
+  // Activity transitions are queued, so release reader-only transient memory
+  // while the reader still owns the renderer. Credentials and Hardcover's
+  // persistent queue are file-backed and are intentionally left untouched.
+  renderModeToastRegionBuffer.reset();
+  renderModeToastRegionBufferSize = 0;
+  renderModeToastRegionSaved = false;
+  sdFontSystem.releaseLoadedFont(renderer);
+  if (auto* const fontCache = renderer.getFontCacheManager()) {
+    fontCache->clearCache();
+  }
+  HardcoverClient::shutdownNetwork();
+
+
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
     const std::string oldCachePath = epub->getCachePath();
@@ -2678,6 +2694,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::HARDCOVER:
+      openHardcoverMenu();
+      break;
     case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {
       const bool markCompleted = !stats.isCompleted;
       setBookCompleted(markCompleted);
@@ -3507,6 +3526,18 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   refreshCachedTimeLeftEstimate();
   stats.save(epub->getCachePath());
   globalStats.save();
+}
+
+void EpubReaderActivity::openHardcoverMenu() {
+  int progressPercent = 0;
+  if (epub) {
+    progressPercent = clampPercent(static_cast<int>(getCurrentBookProgressPercent() + 0.5f));
+  }
+  startActivityForResult(
+      std::make_unique<HardcoverBookActivity>(renderer, mappedInput, epub ? epub->getPath() : std::string{},
+                                              epub ? epub->getTitle() : std::string{},
+                                              epub ? epub->getAuthor() : std::string{}, progressPercent),
+      [this](const ActivityResult&) { requestUpdate(); });
 }
 
 void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {

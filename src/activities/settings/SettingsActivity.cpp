@@ -18,6 +18,7 @@
 #include "CrossPointSettings.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectionActivity.h"
+#include "HardcoverSettingsActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "MappedInputManager.h"
 #include "OpdsServerListActivity.h"
@@ -103,7 +104,7 @@ std::string formatCompactDuration(const uint32_t seconds) {
 
 void drawSystemVersionFooter(const GfxRenderer& renderer, const int pageWidth, const int pageHeight,
                              const ThemeMetrics& metrics) {
-  const std::string label = "CrossInk " CROSSINK_VERSION;
+  const std::string label = "CrossCover " CROSSINK_DISPLAY_VERSION;
   const int maxWidth = pageWidth - systemVersionFooterSideMargin * 2;
   const int bottomLineY =
       pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - systemVersionFooterBottomInset;
@@ -721,6 +722,9 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::Hardcover:
+        startActivityForResult(std::make_unique<HardcoverSettingsActivity>(renderer, mappedInput), resultHandler);
+        break;
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -939,7 +943,7 @@ void SettingsActivity::render(RenderLock&&) {
       },
       true, nullptr, [&settings](int i) { return settings[i].type == SettingType::SECTION_HEADER; });
 
-  // Draw CrossInk version label at the bottom of the System tab
+  // Draw CrossCover version label at the bottom of the System tab
   if (selectedCategoryIndex == 3) {
     drawSystemVersionFooter(renderer, pageWidth, pageHeight, metrics);
   }

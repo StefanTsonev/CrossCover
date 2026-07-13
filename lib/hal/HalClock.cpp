@@ -9,6 +9,13 @@
 
 HalClock halClock;  // Singleton instance
 
+bool HalClock::isSystemTimeValid() const {
+  time_t now = time(nullptr);
+  struct tm timeinfo;
+  gmtime_r(&now, &timeinfo);
+  return timeinfo.tm_year + 1900 >= 2024;
+}
+
 // DS3231 register layout (BCD encoded):
 //   0x00: Seconds  (bits 6-4 = tens, bits 3-0 = ones)
 //   0x01: Minutes  (bits 6-4 = tens, bits 3-0 = ones)
@@ -304,20 +311,21 @@ bool HalClock::writeDateTimeToRTC(uint16_t year, uint8_t month, uint8_t day, uin
 }
 
 bool HalClock::syncFromNTP() {
-  if (!_available) return false;
-
   if (WiFi.status() != WL_CONNECTED) {
     LOG_ERR("CLK", "WiFi not connected, cannot sync NTP");
     return false;
   }
 
+  const bool hadValidSystemTime = isSystemTimeValid();
   LOG_INF("CLK", "Starting NTP sync...");
   configTzTime("UTC0", "pool.ntp.org", "time.nist.gov");
 
   // Wait for SNTP sync to complete (up to 5 seconds)
   constexpr int maxAttempts = 50;
   for (int i = 0; i < maxAttempts; i++) {
-    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+    const bool syncStatusCompleted = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
+    const bool invalidClockBecameValid = !hadValidSystemTime && isSystemTimeValid();
+    if (syncStatusCompleted || invalidClockBecameValid) {
       time_t now = time(nullptr);
       struct tm timeinfo;
       gmtime_r(&now, &timeinfo);
@@ -326,12 +334,17 @@ bool HalClock::syncFromNTP() {
       const uint8_t month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
       const uint8_t day = static_cast<uint8_t>(timeinfo.tm_mday);
       const uint8_t weekday = static_cast<uint8_t>(timeinfo.tm_wday + 1);
-      if (writeDateTimeToRTC(year, month, day, weekday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec)) {
-        LOG_INF("CLK", "RTC set to %04d-%02d-%02d %02d:%02d:%02d UTC", year, month, day, timeinfo.tm_hour,
-                timeinfo.tm_min, timeinfo.tm_sec);
-        return true;
+      if (_available) {
+        if (!writeDateTimeToRTC(year, month, day, weekday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec)) {
+          return false;
+        }
+        LOG_INF("CLK", "System time and RTC set to %04d-%02d-%02d %02d:%02d:%02d UTC", year, month, day,
+                timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+      } else {
+        LOG_INF("CLK", "System time set to %04d-%02d-%02d %02d:%02d:%02d UTC (no RTC present)", year, month, day,
+                timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
       }
-      return false;
+      return true;
     }
     delay(100);
   }

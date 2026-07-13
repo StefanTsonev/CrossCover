@@ -1,4 +1,4 @@
-[submodule "freeink-sdk"]
-	path = freeink-sdk
-	url = https://github.com/Free-Ink/freeink-sdk.git
+[submodule "open-x4-sdk"]
+	path = open-x4-sdk
+	url = https://github.com/crosspoint-reader/community-sdk.git
 	branch = main

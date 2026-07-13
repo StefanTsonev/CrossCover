@@ -27,6 +27,7 @@
 #include "BookmarkStore.h"
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
+#include "HardcoverLibraryActivity.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -54,6 +55,7 @@ enum class HomeMenuAction {
   ContinueReading,
   RecentBooks,
   OpdsBrowser,
+  Hardcover,
   ReadingStats,
   Bookmarks,
   FileTransfer,
@@ -256,6 +258,7 @@ void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasRe
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
+  items.push({tr(STR_HARDCOVER), Library, HomeMenuAction::Hardcover});
   if (hasReadingStats) {
     items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   }
@@ -280,6 +283,7 @@ HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats,
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
+  items.push({tr(STR_HARDCOVER), Library, HomeMenuAction::Hardcover});
   if (hasBookmarks || hasClippings) {
     items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
   }
@@ -1458,6 +1462,9 @@ void HomeActivity::loop() {
           case HomeMenuAction::OpdsBrowser:
             onOpdsBrowserOpen();
             break;
+          case HomeMenuAction::Hardcover:
+            onHardcoverOpen();
+            break;
           case HomeMenuAction::ReadingStats:
             onReadingStatsOpen();
             break;
@@ -1653,6 +1660,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuAction::OpdsBrowser:
         onOpdsBrowserOpen();
+        break;
+      case HomeMenuAction::Hardcover:
+        onHardcoverOpen();
         break;
       case HomeMenuAction::ReadingStats:
         onReadingStatsOpen();
@@ -1866,6 +1876,9 @@ void HomeActivity::updateSlidingWindowCache(int centerIdx, int bookCount) {
 }
 
 void HomeActivity::onSelectBook(const std::string& path) {
+  // The transition to the reader is queued. Release Home's cover snapshot
+  // now, before the reader starts allocating its chapter layout buffers.
+  freeCoverBuffer();
   gCarouselCache.invalidate();
   freeCarouselFrames();
   if (Storage.exists(CAROUSEL_CACHE_TMP_PATH)) {
@@ -1889,6 +1902,17 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
+
+void HomeActivity::onHardcoverOpen() {
+  // Hardcover opens a TLS connection while Home remains on the activity stack.
+  // Release Home-only cover and carousel buffers; they are redraw caches and will
+  // be rebuilt when returning from the Hardcover screen.
+  freeCoverBuffer();
+  gCarouselCache.invalidate();
+  freeCarouselFrames();
+  startActivityForResult(std::make_unique<HardcoverLibraryActivity>(renderer, mappedInput),
+                         [this](const ActivityResult&) { requestUpdate(); });
+}
 
 void HomeActivity::onReadingStatsOpen() {
   const int highlightedBookIdx = getHighlightedBookIndex();

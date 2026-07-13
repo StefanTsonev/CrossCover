@@ -461,10 +461,13 @@ void WifiSelectionActivity::checkConnectionStatus() {
 #endif
     LOG_INF("WIFI", "Connected to ssid=%s ip=%s rssi=%d", selectedSSID.c_str(), connectedIP.c_str(), WiFi.RSSI());
 
-    // Sync RTC from NTP on the first successful WiFi connection only. The DS3231
-    // drifts ~2 ppm so one sync is enough; users can force a re-sync from
-    // Settings > System > Device > Sync Date/Time Now.
-    if (halClock.isAvailable() && (!SETTINGS.clockHasBeenSynced || !SETTINGS.clockDateHasBeenSynced)) {
+    // Sync system time from NTP on the first successful WiFi connection. X4
+    // has no RTC, but TLS still needs a current system time for certificate
+    // validity checks. X3 also copies the synchronized time to its DS3231.
+    const bool needsNetworkTime = !halClock.isSystemTimeValid() ||
+                                  (halClock.isAvailable() &&
+                                   (!SETTINGS.clockHasBeenSynced || !SETTINGS.clockDateHasBeenSynced));
+    if (needsNetworkTime) {
       if (halClock.syncFromNTP()) {
         SETTINGS.clockHasBeenSynced = 1;
         SETTINGS.clockDateHasBeenSynced = 1;

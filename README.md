@@ -1,158 +1,120 @@
-> **This is a personal fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader)** with a focus on improved fonts and minimal reading stats.
+# CrossCover
 
-## What's different in this fork
+CrossCover is a CrossInk-based firmware fork for the Xteink X4 e-reader. This fork adds Hardcover integration and related reader/library workflows; the underlying reader, file-browser, WiFi, sync, and theme features come from CrossInk.
 
-My goal with this fork was to maintain the core Crosspoint firmware while integrating my preferred typography and some lightweight reading statistics. I’ve focused on keeping the underlying system stable while layering in a few "nice-to-have" features and UI refinements along the way.
+> **This firmware is strictly for the Xteink X4. Do not flash it on an Xteink X3 or any other device.**
 
-<table>
-  <tr>
-    <td align="center">
-      <img src="./docs/images/bitter-small-15-margin.jpg" alt="Font: Bitter, Size: 12 pt, Margin: 15" /><br/>
-      <em>Font: Bitter, Size: 12 pt, Margin: 15</em>
-    </td>
-    <td align="center">
-      <img src="./docs/images/reading-stats.jpg" alt="Reading Stats with custom front button mapping shown" /><br/>
-      <em>Reading Stats with custom front button mapping shown</em>
-    </td>
-  </tr>
-</table>
+## ⚠️ DO NOT FLASH THIS FIRMWARE TO A USB LOCKED DEVICE ⚠️
 
----
+## CrossCover Features
 
-**Note**: This firmware is confirmed to be working on both the X3 and X4.
+- Hardcover integration:
+  - Import a Hardcover API key from the SD card.
+  - Authenticate from Settings.
+  - Open a lightweight Hardcover library view from Home.
+  - Link a local EPUB to a Hardcover book manually by Book ID or ISBN.
+  - Find a matching Hardcover book automatically from EPUB title/author.
+  - Mark a linked book as currently reading or read.
+  - Queue reading-progress updates, then send them from the Hardcover Library.
+  - Rate a linked book.
 
-### Highlights
+## Hardcover Design
 
-- New reader fonts: Lexend Deca and Bitter.
-- Unicode emoji and miscellaneous symbols support (a limited subset).
-- Adjusted font sizes: 8 pt, 9 pt, 10 pt, 12 pt, 14 pt, 16 pt, 18 pt, and 20 pt. See [Font Build Variants](./docs/font-build-variants.md) for more details.
-- Added ~~strikethrough~~ support.
-- Made <u>underlines</u> thicker for better visibility.
-- Added a custom `Minimal` theme and sleep screen option for the minimalists out there.
-- Added a custom `Dashboard` theme and sleep screen option for reading stats enthusiasts.
-- Added support for `<hr>` section breaks.
-- Added support for "redaction" style rendering.
-- Added improved support for tables with simple markup.
-- Added ability to add bookmarks.
-- Added ability to remap front buttons that only applies in the reader.
-- Added Bionic Reading and Guide Dots as optional reader modes.
-- Added Force Paragraph Indents for books that render as one giant wall of text.
-- Added ability to pin a sleep image as a favorite. The favorited image will always be displayed when your sleep settings are set to `Custom` or `Cover + Custom` (when no cover is available).
-- Added more in-reader control remapping options for side buttons, short power button clicks, and long-press menu actions.
-- Added ability to mark a book as finished from the in-book menu. A pop-up will also display once 99% of the book is reached. This status allows tracking of total books read.
-- Added ability to move finished books to "Read" folder.
-- In-book menu to quickly adjust reader options without having to exit the book.
-- Reading stats: total books read, total reading time, number of sessions, pages turned, average session time, pages turned per minute. You can also set your reading stats as your sleep screen.
-- All-time reading stats [syncing](./docs/reading-stats-sync.md) between two CrossInk devices.
-- Reading [progress sync](./docs/nearby-position-sync.md) between two CrossInk devices.
-- Added customizable Auto Page Turn Interval (anything between 5-120 seconds).
-- Added ability to view Recent Books as a 3x3 grid view.
-- To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
+The Hardcover integration is intentionally lightweight:
 
----
+- No background sync task.
+- No always-on WiFi requirement.
+- No page-by-page API calls.
+- Books open and read fully offline.
+- Hardcover requests happen only when a user opens a Hardcover action, authenticates, or manually processes queued updates from the Hardcover Library.
+- Local storage is limited to the API token, per-book Hardcover links, queued updates, last synced progress, and normal reading stats on the SD card.
 
-### Reader Fonts
+The Home `Hardcover Library` view is a convenience/status screen, not a full library browser. It fetches a small limited list so large Hardcover libraries do not have to be loaded into RAM. The most reliable flow is linking and syncing the currently open EPUB.
 
-The default fonts have been replaced with Lexend Deca and Bitter. These fonts have been chosen specifically to improve reading fluency and e-ink performance. These 'sturdier' typefaces feature uniform stroke weights and open geometries, allowing the X4/X3 to render crisp, high-contrast text with font-aliasing on while significantly reducing ghosting and artifacts.
+## Hardcover Setup
 
-- [Lexend Deca](https://fonts.google.com/specimen/Lexend+Deca) - A research-backed sans-serif typeface designed to improve reading fluency. Lexend was engineered based on the theory that reading issues are often a design problem (visual crowding) rather than a cognitive one.
-- [Bitter](https://fonts.google.com/specimen/Bitter) - A "contemporary" slab serif typeface for text, it is specially designed for comfortably reading on digital screens. The consistent stroke weight of Bitter helps it render particularly well on e-ink devices. The medium weight has been chosen specifically for improved rendering on the X4/X3.
+1. Create a Hardcover API key from your Hardcover account.
+2. On the SD card, create this file:
 
-The UI now uses [Inter](https://fonts.google.com/specimen/Inter) as the display font which has improved readability at smaller sizes.
+   ```text
+   /.crosspoint/hardcover_token.txt
+   ```
 
-### Emojis and Misc Glyphs
+3. Put only the token in that file.
+4. Insert the SD card and boot the device.
+5. Open:
 
-- Support for a limited set of Unicode [Emoticons](https://unicode-explorer.com/b/1F600) and [Miscellaneous Symbols](https://unicode-explorer.com/b/2600) using [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) and [Noto Sans Symbols](https://fonts.google.com/noto/specimen/Noto+Sans+Symbols) font.
+   ```text
+   Settings > System > Hardcover > Import API Key
+   ```
 
----
+6. Then choose:
 
-### Font Sizes
+   ```text
+   Authenticate
+   ```
 
-There are 2 available build variants to choose from due to build size constraints: `tiny`, and `xlarge`.
+If authentication fails, open the serial monitor and look for `HDC` log lines. After making changes from a book, open `Hardcover Library` and process the pending updates.
 
-See [Font Build Variants](./docs/font-build-variants.md) for the full point-size and emoji-support matrix.
+## Using Hardcover In A Book
 
----
+Open an EPUB, then open the reader menu and choose `Hardcover`.
 
-### Reader features
+Available actions:
 
-Reader Options, Bionic Reading, Guide Dots, Force Paragraph Indents, reading stats, and finished-book behavior are documented in [Reader Features](./docs/reader-features.md).
+- `Link Book ID` / `Hardcover Book ID or ISBN`: manually link the current EPUB.
+- `Find Automatically`: search Hardcover using the EPUB title and author.
+- `Mark Currently Reading`: set the Hardcover status.
+- `Update Progress`: queue the current local reading progress.
+- `Mark Read`: mark the book as read and queue 100% progress.
+- `Rate`: queue a 1-5 star rating.
 
-### Custom button actions
+Open `Hardcover Library` after leaving the reader to send queued actions. Automatic linking searches Hardcover from the EPUB title and author, then lets you choose from the returned matches. Manual Book ID or ISBN linking is safer when accuracy matters.
 
-CrossInk adds configurable button shortcuts.
+## Build
 
-See [Controls](./docs/controls.md) for the full action list and defaults.
+This repo uses PlatformIO. On this Windows setup, use Python 3.11:
 
----
-
-## Tips for the best reading experience
-
-CrossInk runs on an ESP32-C3 with limited RAM, so very large folders or complex EPUBs can be slower than they would be on a phone, tablet, or desktop app.
-
-- Keep folders under about 200 files. For the smoothest browsing, aim for 50-100 files per folder.
-- Having 1000+ books on the SD card is fine if they are split into smaller folders, such as by author, series, genre, or read/unread status.
-- Avoid putting every book in the SD card root. The file browser has to scan and sort the current folder before it can show it.
-- Text-first EPUBs are the best fit. Large image-heavy EPUBs, scanned books, comics, and omnibus files with thousands of sections may load slowly or fail under memory pressure.
-- As a rough target, EPUBs under 20 MB tend to work the best. Files over 50 MB may still work, but they are more likely to be slow or memory-sensitive, especially if they contain many large images.
-- If an EPUB is unusually slow, try [optimizing](./docs/webserver.md#epub-optimization) it with the built-in web optimizer (via File Transfer) before copying it to the SD card: remove unused high-resolution images, split very large omnibus files, and avoid embedding multiple full font families when possible.
-- Use a reliable SD card and leave some free space. CrossInk stores settings, reading progress, cache files, stats, and generated book data on the card.
-
-## Development Device Simulator
-
-The [device simulator](https://github.com/uxjulia/crosspoint-simulator) renders the e-ink display in an SDL2 window so firmware changes can be sanity-checked without flashing hardware.
-
-See [Simulator](./docs/simulator.md) for setup, platform notes, keyboard controls, and cache tips.
-
----
-
-## Installation
-
-Download a `firmware-*.bin` from the [releases page](https://github.com/uxjulia/CrossInk/releases), then flash it with the web installer or command line.
-
-See [Installation](./docs/installation.md) for step-by-step flashing and revert instructions.
-
----
-
-## Documentation
-
-- [User Guide](./USER_GUIDE.md)
-- [Installation](./docs/installation.md)
-- [Font Build Variants](./docs/font-build-variants.md)
-- [Reader Features](./docs/reader-features.md)
-- [Controls](./docs/controls.md)
-- [Simulator](./docs/simulator.md)
-- [Data Cache](./docs/data-cache.md)
-- [Web server usage](./docs/webserver.md)
-- [Web server endpoints](./docs/webserver-endpoints.md)
-- [Common issues](./docs/troubleshooting.md)
-- [Project scope](./SCOPE.md)
-- [Contributing docs](./docs/contributing/README.md)
-
----
-
-## Development quick start
-
-CrossInk uses PlatformIO for building and flashing firmware.
-
-See [Getting Started](./docs/contributing/getting-started.md) for prerequisites, clone setup, hooks, and validation commands.
-
-### Build / flash / monitor
-
-Connect your Xteink X4 or X3 via USB-C and run:
-
-```sh
-pio run -e tiny --target upload
+```powershell
+py -3.11 -m platformio run -e default
 ```
 
-Replace `tiny` with another build variant if needed. See [Font Build Variants](./docs/font-build-variants.md).
+For the small release variant, use `-e tiny`. The firmware image is written under:
 
-See [Testing and Debugging](./docs/contributing/testing-debugging.md) for serial logging, simulator checks, static analysis, and bug-report guidance.
+```text
+.pio/build/default/
+```
 
----
+To monitor serial logs:
 
-## Internals
+```powershell
+py -3.11 -m platformio device monitor
+```
 
-The ESP32-C3 has about 380 KB of usable RAM, so CrossInk stores reusable book and device data on the SD card instead of rebuilding everything in memory.
+Useful log tag for Hardcover issues:
 
-See [Data Cache](./docs/data-cache.md) for the `.crosspoint` layout and [File Formats](./docs/file-formats.md) for binary cache details.
+```text
+HDC
+```
+
+## Flashing
+
+Use the generated firmware binary with the CrossPoint web flasher, or flash manually with `esptool`.
+
+This project is for the Xteink X4 only. If you are unsure, use the web flasher and choose a custom `.bin` file after reviewing the unlocker warning above.
+
+## Credits
+
+CrossCover is based on the CrossPoint Reader / CrossInk firmware work and keeps the same embedded-reader foundation while adding Hardcover-focused workflows.
+
+The Hardcover behavior was informed by the Hardcover API documentation, the KOReader Hardcover plugin, and NickelHardcover.
+
+AI assistance was used during development to help inspect the codebase, design the Hardcover integration, debug GraphQL/API issues, and prepare documentation.
+
+## Support and Feedback
+
+CrossCover is being developed in the open. If you find a bug or have an idea for a future feature or customization option, open an issue in this repository.
+
+If you would like to support development, you can do so through Ko-fi:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/E3M5210X5J)
