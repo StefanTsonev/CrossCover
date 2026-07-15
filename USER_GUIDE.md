@@ -604,7 +604,13 @@ Please note that this firmware is currently in active development. The following
 
 - **Cover Images:** Large cover images embedded into EPUB require several seconds (~10s for ~2000 pixel tall image) to convert for sleep screen and home screen thumbnail. Consider optimizing the EPUB with e.g. https://github.com/bigbag/epub-to-xtc-converter to speed this up.
 - **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
-- **Dictionary Lookup:** Inline word lookup is not yet implemented.
+- **Dictionary Lookup:** The reader can look up one selected word in an optional offline English-Bulgarian StarDict dictionary. The firmware does not download or include the dictionary. After downloading and decompressing it yourself, place these files on the SD card:
+
+      /.crosspoint/dictionaries/<name>/<dictionary>.ifo
+      /.crosspoint/dictionaries/<name>/<dictionary>.idx
+      /.crosspoint/dictionaries/<name>/<dictionary>.dict
+
+  Put each dictionary in its own folder. The `.dict` file must be decompressed from `.dict.dz`; `.dz` files are not decompressed by the reader. Select the active dictionary under Settings → Reader → Dictionary. The first lookup creates a small `.qidx` sidecar index next to the `.idx` file; it can be deleted safely and will be rebuilt. Open the reader menu, choose Dictionary, move to a word with the direction buttons, and press Look up.
 
 ---
 

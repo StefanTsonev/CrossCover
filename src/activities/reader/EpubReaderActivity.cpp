@@ -25,6 +25,7 @@
 #include "../settings/KOReaderSettingsActivity.h"
 #include "BookStatsActivity.h"
 #include "ClipSelectionActivity.h"
+#include "DictionaryActivity.h"
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -2475,6 +2476,9 @@ void EpubReaderActivity::handleClippingJump(const ClippingJumpResult& clipping) 
 
 void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action) {
   switch (action) {
+    case EpubReaderMenuActivity::MenuAction::DICTIONARY_LOOKUP:
+      startDictionarySelection();
+      break;
     case EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER: {
       const int spineIdx = currentSpineIndex;
       const std::string path = epub->getPath();
@@ -2925,6 +2929,103 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     case EpubReaderMenuActivity::MenuAction::CONTROLS_OPTIONS:
       break;
   }
+}
+
+void EpubReaderActivity::startDictionarySelection() {
+  if (!section || !epub) {
+    requestUpdate();
+    return;
+  }
+
+  // Reuse the reader's existing word geometry and page snapshot selection UI,
+  // but confirm a single word instead of creating a clipping range.
+  ReaderViewportLayout layout{};
+  std::vector<WordRef> words;
+  int readerFontId = 0;
+  int startPage = 0;
+  {
+    RenderLock lock(*this);
+    layout = computeReaderViewportLayout(renderer, automaticPageTurnActive);
+    readerFontId = activeSectionFontId > 0 ? activeSectionFontId : SETTINGS.getReaderFontId();
+    startPage = section->currentPage;
+    const int pagesToLoad = std::min(2, section->pageCount - startPage);
+    words.reserve(120);
+    const int lineHeight = renderer.getLineHeight(readerFontId);
+    std::array<uint16_t, 2> pageWordCounts{};
+    for (int pageIdx = 0; pageIdx < pagesToLoad; ++pageIdx) {
+      section->currentPage = startPage + pageIdx;
+      auto page = section->loadPageFromSectionFile();
+      if (!page) break;
+      for (const auto& element : page->elements) {
+        if (element->getTag() != TAG_PageLine) continue;
+        const auto& line = static_cast<const PageLine&>(*element);
+        if (!line.getBlock()) continue;
+        const auto& block = *line.getBlock();
+        for (uint16_t i = 0; i < block.wordCount() && words.size() < 120; ++i) {
+          const char* text = block.wordText(i);
+          if (!hasVisibleWordText(text)) continue;
+          std::string displayText = text;
+          size_t wordStart = 0;
+          size_t wordEnd = displayText.size();
+          while (wordStart < wordEnd && std::ispunct(static_cast<unsigned char>(displayText[wordStart]))) ++wordStart;
+          while (wordEnd > wordStart && std::ispunct(static_cast<unsigned char>(displayText[wordEnd - 1]))) --wordEnd;
+          if (wordStart == wordEnd) continue;
+          const std::string leadingPunctuation = displayText.substr(0, wordStart);
+          displayText = displayText.substr(wordStart, wordEnd - wordStart);
+          bool hasLookupCharacter = false;
+          for (const unsigned char* p = reinterpret_cast<const unsigned char*>(displayText.c_str()); *p != '\0'; ++p) {
+            if (std::isalnum(*p) || *p >= 0x80) {
+              hasLookupCharacter = true;
+              break;
+            }
+          }
+          if (!hasLookupCharacter) continue;
+          const auto style = static_cast<EpdFontFamily::Style>(block.wordStyle(i) & ~EpdFontFamily::UNDERLINE);
+          int width = renderer.getTextAdvanceX(readerFontId, displayText.c_str(), style);
+          if (width <= 0) continue;
+          if (i + 1 < block.wordCount() && block.wordXpos(i + 1) > block.wordXpos(i)) {
+            width = std::min(width, static_cast<int>(block.wordXpos(i + 1) - block.wordXpos(i)));
+          }
+          WordRef word;
+          word.x = layout.marginLeft + line.xPos + block.wordXpos(i) +
+                   renderer.getTextAdvanceX(readerFontId, leadingPunctuation.c_str(), style);
+          word.y = layout.marginTop + line.yPos;
+          word.w = width;
+          word.h = lineHeight;
+          word.pageIdx = pageIdx;
+          word.pageWordIndex = pageWordCounts[pageIdx]++;
+          word.text = std::move(displayText);
+          word.style = style;
+          word.lineIsRtl = block.getBlockStyle().isRtl;
+          words.push_back(std::move(word));
+        }
+      }
+    }
+    section->currentPage = startPage;
+  }
+
+  if (words.empty()) {
+    requestUpdate();
+    return;
+  }
+
+  pauseReadingPaceTimer("dictionary_selection");
+  startActivityForResult(
+      std::make_unique<ClipSelectionActivity>(renderer, mappedInput, std::move(words), readerFontId, *section,
+                                              startPage, layout.marginTop, layout.marginLeft, true),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          const auto& selected = std::get<DictionaryWordResult>(result.data);
+          startActivityForResult(std::make_unique<DictionaryActivity>(renderer, mappedInput, selected.word),
+                                 [this](const ActivityResult&) {
+                                   resumeReadingPaceTimer("dictionary_return");
+                                   requestUpdate();
+                                 });
+        } else {
+          resumeReadingPaceTimer("dictionary_selection_cancel");
+          requestUpdate();
+        }
+      });
 }
 
 void EpubReaderActivity::reindexCurrentSection() {

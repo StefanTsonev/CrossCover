@@ -497,11 +497,11 @@ HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTit
         HardcoverBookSearchResult result;
         result.bookId = id;
         result.title = title;
-        if (titlesMatchClosely(expectedTitle, title)) {
-          outBooks.insert(outBooks.begin(), result);
-        } else {
-          outBooks.push_back(result);
-        }
+        const auto insertionPoint =
+            std::find_if(outBooks.begin(), outBooks.end(), [&](const HardcoverBookSearchResult& existing) {
+              return !titlesMatchClosely(expectedTitle, existing.title.c_str());
+            });
+        outBooks.insert(insertionPoint, result);
         break;
       }
     }

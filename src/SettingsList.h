@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "DictionaryRegistry.h"
 #include "KOReaderCredentialStore.h"
 #include "activities/settings/SettingsActivity.h"
 
@@ -267,7 +268,8 @@ inline SettingInfo buildSleepScreenSetting() {
 // SdCardFontRegistry is supplied AND has SD card fonts installed, the
 // font-family entry is replaced in a per-call copy with a registry-aware
 // version. Callers without SD fonts pay only a vector copy.
-inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr) {
+inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr,
+                                                const std::vector<DictionaryEntry>* dictionaries = nullptr) {
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v;
     v.reserve(66);
@@ -315,6 +317,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
     // version when SD fonts are installed.
     add(SettingInfo::Enum(StrId::STR_FONT_FAMILY, &CrossPointSettings::fontFamily,
                           {StrId::STR_LEXEND_DECA, StrId::STR_BITTER}, "fontFamily", StrId::STR_CAT_READER));
+    add(SettingInfo::String(StrId::STR_DICTIONARY, SETTINGS.dictionary, sizeof(SETTINGS.dictionary), "dictionary",
+                            StrId::STR_CAT_READER));
     add(buildBuiltinFontSizeSetting());
     add(SettingInfo::Enum(StrId::STR_SD_FONT_SIZE_RANGE, &CrossPointSettings::sdFontSizeRange,
                           {StrId::STR_FONT_RANGE_TEENSY, StrId::STR_FONT_RANGE_TINY, StrId::STR_FONT_RANGE_XLARGE,
@@ -698,6 +702,38 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       *fontSizeIt = buildFontSizeSetting(registry);
     }
   }
+  if (dictionaries) {
+    auto dictionaryIt = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) {
+      return s.nameId == StrId::STR_DICTIONARY;
+    });
+    if (dictionaryIt != v.end()) {
+      if (dictionaries->empty()) {
+        v.erase(dictionaryIt);
+      } else {
+        SettingInfo setting;
+        setting.nameId = StrId::STR_DICTIONARY;
+        setting.type = SettingType::ENUM;
+        setting.key = "dictionary";
+        setting.category = StrId::STR_CAT_READER;
+        for (const auto& dictionary : *dictionaries) setting.enumStringValues.push_back(dictionary.name);
+        const auto names = setting.enumStringValues;
+        setting.valueGetter = [names]() -> uint8_t {
+          for (size_t i = 0; i < names.size(); ++i) {
+            if (std::strncmp(SETTINGS.dictionary, names[i].c_str(), sizeof(SETTINGS.dictionary)) == 0) {
+              return static_cast<uint8_t>(i);
+            }
+          }
+          return 0;
+        };
+        setting.valueSetter = [names](const uint8_t index) {
+          if (index >= names.size()) return;
+          std::strncpy(SETTINGS.dictionary, names[index].c_str(), sizeof(SETTINGS.dictionary) - 1);
+          SETTINGS.dictionary[sizeof(SETTINGS.dictionary) - 1] = '\0';
+        };
+        *dictionaryIt = std::move(setting);
+      }
+    }
+  }
   if (!gpio.deviceIsX3()) {
     auto sleepScreenIt =
         std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_SLEEP_SCREEN; });
@@ -770,6 +806,7 @@ inline std::vector<SettingInfo> buildReaderSettingsParentList(const std::vector<
   addSettingByName(readerSettings, allSettings, StrId::STR_READER_DARK_MODE);
   addSettingByName(readerSettings, allSettings, StrId::STR_EMBEDDED_STYLE);
   addSettingByName(readerSettings, allSettings, StrId::STR_IMAGES);
+  addSettingByName(readerSettings, allSettings, StrId::STR_DICTIONARY);
   addSettingByName(readerSettings, allSettings, StrId::STR_BIONIC_READING);
   addSettingByName(readerSettings, allSettings, StrId::STR_GUIDE_READING);
   return readerSettings;

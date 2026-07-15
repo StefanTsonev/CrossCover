@@ -169,6 +169,8 @@ void HardcoverLibraryActivity::syncPending() {
     return;
   }
 
+  GUI.drawPopup(renderer, tr(STR_HARDCOVER_SYNCING));
+  renderer.displayBuffer();
   releaseHardcoverFontCaches(renderer, "pending sync");
   int sent = 0;
   for (size_t i = 0; i < pending.size(); ++i) {
@@ -222,8 +224,9 @@ void HardcoverLibraryActivity::syncPending() {
   HARDCOVER_LINKS.getPending(pending);
   char summary[64];
   snprintf(summary, sizeof(summary), tr(STR_HARDCOVER_SYNC_SUMMARY), sent, static_cast<int>(pending.size()));
-  GUI.drawPopup(renderer, summary);
   refresh();
+  GUI.drawPopup(renderer, summary);
+  requestUpdate();
 }
 
 void HardcoverLibraryActivity::confirmLookup() {
@@ -304,7 +307,10 @@ void HardcoverLibraryActivity::render(RenderLock&&) {
         true);
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const bool syncSelected = !pending.empty() && selectedIndex == 0;
+  const StrId actionLabel = syncSelected ? StrId::STR_NEARBY_STATS_SYNC_BUTTON : StrId::STR_RELOAD;
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), I18n::getInstance().get(actionLabel), tr(STR_DIR_UP),
+                                             tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

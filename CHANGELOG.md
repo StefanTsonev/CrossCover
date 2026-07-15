@@ -1,3 +1,15 @@
+## [v1.4.0-crosscover.1] - 2026-07-15
+
+### Added
+
+- Offline dictionary lookup from the EPUB reader using user-provided StarDict files.
+- Dictionary selection under Reader settings, with automatic discovery of dictionaries on the SD card.
+- Automatic `.qidx` sidecar indexing for faster repeated dictionary lookups.
+
+### Changed
+
+- Dictionary definitions are cleaned and spaced before display, including common StarDict markup.
+
 ## [v1.4.0] - 2026-07-10
 
 ### Added
@@ -20,6 +32,8 @@
 
 ### Fixed
 
+- Hardcover Library now labels its normal action `Reload`, labels pending updates `Sync`, and keeps the sync result visible after reloading the library.
+- Hardcover book search results now remain in the relevance order returned by Hardcover.
 - EPUB render-mode and Safe Mode toast messages now clear reliably, even when the reader is low on memory.
 - EPUB Reading Stats no longer drops unsaved page-turn counts after viewing the stats screen mid-session.
 - KOSync is more reliable with many SD-card fonts installed, reducing low-memory failures during secure sync requests and uploads.
