@@ -178,6 +178,7 @@ EpubReaderMenuActivity::TabMenuItems EpubReaderMenuActivity::buildMenuItems(bool
     mainItems.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }
   mainItems.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
+  mainItems.push_back({MenuAction::DICTIONARY_LOOKUP, StrId::STR_DICTIONARY});
   mainItems.push_back({MenuAction::READER_OPTIONS, StrId::STR_READER_OPTIONS});
   mainItems.push_back({MenuAction::CONTROLS_OPTIONS, StrId::STR_CAT_CONTROLS});
   mainItems.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});

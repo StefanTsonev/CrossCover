@@ -29,7 +29,8 @@ struct ClipWordStyle {
 class ClipSelectionActivity final : public Activity {
  public:
   ClipSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::vector<WordRef> words, int fontId,
-                        Section& section, int startPageInSection, int marginTop, int marginLeft);
+                        Section& section, int startPageInSection, int marginTop, int marginLeft,
+                        bool singleWordSelection = false);
 
   void onEnter() override;
   void onExit() override;
@@ -47,6 +48,7 @@ class ClipSelectionActivity final : public Activity {
   int startPageInSection = 0;
   int marginTop = 0;
   int marginLeft = 0;
+  bool singleWordSelection = false;
 
   std::vector<std::unique_ptr<uint8_t[]>> savedBufferChunks;
   size_t savedBufferSize = 0;

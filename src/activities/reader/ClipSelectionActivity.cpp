@@ -28,14 +28,16 @@ bool hasEmSpace(const std::string& text) {
 
 ClipSelectionActivity::ClipSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                              std::vector<WordRef> words, const int fontId, Section& section,
-                                             const int startPageInSection, const int marginTop, const int marginLeft)
+                                             const int startPageInSection, const int marginTop, const int marginLeft,
+                                             const bool singleWordSelection)
     : Activity("ClipSelection", renderer, mappedInput),
       words(std::move(words)),
       renderFontId(fontId),
       section(section),
       startPageInSection(startPageInSection),
       marginTop(marginTop),
-      marginLeft(marginLeft) {}
+      marginLeft(marginLeft),
+      singleWordSelection(singleWordSelection) {}
 
 void ClipSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -187,6 +189,13 @@ void ClipSelectionActivity::loop() {
   buttonNavigator.onContinuous({Button::Up}, [this, &moveCursor] { moveCursor(lineEndBackward(cursorIdx)); });
 
   if (mappedInput.wasReleased(Button::Confirm)) {
+    if (singleWordSelection) {
+      ActivityResult result;
+      result.data = DictionaryWordResult{words[readingOrder[cursorIdx]].text};
+      setResult(std::move(result));
+      finish();
+      return;
+    }
     if (startMarkIdx == -1) {
       startMarkIdx = cursorIdx;
       requestUpdate();
@@ -233,7 +242,7 @@ void ClipSelectionActivity::render(RenderLock&&) {
   }
   drawHighlights();
 
-  const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
+  const auto confirmLabel = singleWordSelection ? tr(STR_LOOK_UP) : (startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE));
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

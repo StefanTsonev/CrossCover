@@ -367,6 +367,7 @@ class CrossPointSettings {
   uint8_t readerFrontButtonRight = FRONT_HW_RIGHT;
   // Reader font settings
   uint8_t fontFamily = LEXENDDECA;
+  char dictionary[64] = "";
   uint8_t fontSize = MEDIUM;
 #if defined(OMIT_EMOJI_FONTS)
   uint8_t sdFontSizeRange = SD_FONT_RANGE_NO_EMOJI;

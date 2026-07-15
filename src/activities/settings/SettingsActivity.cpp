@@ -216,7 +216,9 @@ void SettingsActivity::rebuildSettingsLists() {
   // reader activity ran — otherwise the font-family picker shows stale list.
   sdFontSystem.refreshIfDirty();
 
-  const auto allSettings = getSettingsList(&sdFontSystem.registry());
+  std::vector<DictionaryEntry> dictionaries;
+  DictionaryRegistry::discover(dictionaries);
+  const auto allSettings = getSettingsList(&sdFontSystem.registry(), &dictionaries);
   displaySettings = buildGroupedDisplaySettingsList(allSettings);
   displaySleepSettings = buildDisplaySleepSettingsList(allSettings);
   readerSettings = buildReaderSettingsParentList(allSettings);

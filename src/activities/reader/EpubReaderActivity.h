@@ -187,6 +187,7 @@ class EpubReaderActivity final : public Activity {
   void openFileTransfer();
   void openAutoPageTurnIntervalPicker(bool ignoreInitialConfirmRelease = false);
   void startClipSelection();
+  void startDictionarySelection();
   void resetReadingPaceData();
   void captureGlobalReaderSettings();
   void restoreGlobalReaderSettings();

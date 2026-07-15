@@ -101,6 +101,10 @@ struct ClippingResult {
   uint16_t wordCount = 0;
 };
 
+struct DictionaryWordResult {
+  std::string word;
+};
+
 struct ClippingJumpResult {
   uint16_t spineIndex = 0;
   uint16_t page = 0;
@@ -114,7 +118,8 @@ struct ClippingJumpResult {
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
                                    IntervalResult, OptionSelectionResult, PageResult, ProgressChangeResult, SyncResult,
                                    NetworkModeResult, FootnoteResult, BookmarkResult, FileBrowserActionResult,
-                                   FilePathResult, ReadingStatsResult, ClippingResult, ClippingJumpResult>;
+                                   FilePathResult, ReadingStatsResult, ClippingResult, DictionaryWordResult,
+                                   ClippingJumpResult>;
 
 struct ActivityResult {
   bool isCancelled = false;
