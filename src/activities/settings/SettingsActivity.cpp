@@ -361,9 +361,11 @@ void SettingsActivity::closeSubmenu() {
 }
 
 bool SettingsActivity::currentSettingUsesOptionMenu(const SettingInfo& setting) const {
-  return setting.nameId != StrId::STR_FONT_FAMILY && setting.type == SettingType::ENUM &&
-         settingEnumOptionCount(setting) > 2 &&
-         (setting.valuePtr != nullptr || (setting.valueGetter && setting.valueSetter));
+  if (setting.nameId == StrId::STR_FONT_FAMILY || setting.type != SettingType::ENUM) return false;
+  const size_t optionCount = settingEnumOptionCount(setting);
+  const bool hasValue = setting.valuePtr != nullptr || (setting.valueGetter && setting.valueSetter);
+  if (!hasValue) return false;
+  return optionCount > 2 || (setting.nameId == StrId::STR_DICTIONARY && optionCount > 1);
 }
 
 void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {

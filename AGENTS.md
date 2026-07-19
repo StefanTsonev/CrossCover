@@ -15,6 +15,7 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 - Justify new heap allocations or explain why stack/static storage is not suitable.
 - Explain fixes in plain language where possible, ideally in terms a Node / React developer would follow.
 - After proposing or making a fix, say how to verify it on hardware.
+- Do not edit `README.md` unless the user explicitly requests a README change.
 
 ## Persistent Context
 
@@ -139,6 +140,7 @@ Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3).
 ## Changelog
 
 When new features are added or issues are fixed, make sure to add an entry to `CHANGELOG.md` with the user-facing description of the change. Types of changes should have their own section.
+For current CrossCover work, add entries under the latest `v1.4.0-crosscover.2` section unless the user explicitly requests a different release section.
 
 ### Changelog Guiding Principles
 

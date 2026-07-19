@@ -1,3 +1,16 @@
+## [v1.4.0-crosscover.2] - 2026-07-16
+
+### Fixed
+
+- Hardcover book search results now remain in the relevance order returned by Hardcover.
+- Dictionary lookup no longer reports that an English-Bulgarian dictionary is required.
+- Settings can now be highlighted and opened from the default home menu.
+
+### Changed
+
+- Dictionary selection now opens as a popup when multiple dictionaries are available.
+- Added `build.cmd` to build the default firmware with PlatformIO's Python 3.11 environment.
+
 ## [v1.4.0-crosscover.1] - 2026-07-15
 
 ### Added
@@ -33,7 +46,6 @@
 ### Fixed
 
 - Hardcover Library now labels its normal action `Reload`, labels pending updates `Sync`, and keeps the sync result visible after reloading the library.
-- Hardcover book search results now remain in the relevance order returned by Hardcover.
 - EPUB render-mode and Safe Mode toast messages now clear reliably, even when the reader is low on memory.
 - EPUB Reading Stats no longer drops unsaved page-turn counts after viewing the stats screen mid-session.
 - KOSync is more reliable with many SD-card fonts installed, reducing low-memory failures during secure sync requests and uploads.
