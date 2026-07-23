@@ -10,6 +10,7 @@
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "browser/ShadowLibraryActivity.h"
 #include "home/AlertActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
@@ -233,6 +234,10 @@ void ActivityManager::goToBrowser() {
   }
 }
 
+void ActivityManager::goToShadowLibrary() {
+  replaceActivity(std::make_unique<ShadowLibraryActivity>(renderer, mappedInput));
+}
+
 void ActivityManager::goToReader(std::string path, const bool suppressBackRelease) {
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease));
 }
@@ -259,6 +264,8 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
       initialMenuItem = HomeMenuItem::RECENTS;
     } else if (activityName == "OpdsBookBrowser") {
       initialMenuItem = HomeMenuItem::OPDS_BROWSER;
+    } else if (activityName == "ShadowLibrary") {
+      initialMenuItem = HomeMenuItem::NONE;
     } else if (activityName == "CrossPointWebServer") {
       initialMenuItem = HomeMenuItem::FILE_TRANSFER;
     } else if (activityName == "NearbyStatsSync") {

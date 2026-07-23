@@ -258,7 +258,17 @@ void LyraTheme::drawListWithMetrics(const GfxRenderer& renderer, Rect rect, int 
                                     const std::function<bool(int index)>& rowDimmed,
                                     const std::function<bool(int index)>& isHeader, const ThemeMetrics& metrics,
                                     const bool invertSelectedRows) const {
+  bool hasTertiarySubtitle = false;
+  if (rowSubtitle != nullptr) {
+    for (int i = 0; i < itemCount; ++i) {
+      if (rowSubtitle(i).find('\n') != std::string::npos) {
+        hasTertiarySubtitle = true;
+        break;
+      }
+    }
+  }
   int rowHeight = (rowSubtitle != nullptr) ? metrics.listWithSubtitleRowHeight : metrics.listRowHeight;
+  if (hasTertiarySubtitle) rowHeight += renderer.getLineHeight(SMALL_FONT_ID) + 2;
   if (itemCount <= 0) return;
   const auto isHeaderRow = [&isHeader](int index) { return isHeader != nullptr && isHeader(index); };
   const int sectionHeaderTopPadding = halTiltSensor.isAvailable() ? 10 : 20;
@@ -383,8 +393,17 @@ void LyraTheme::drawListWithMetrics(const GfxRenderer& renderer, Rect rect, int 
     if (rowSubtitle != nullptr) {
       // Draw subtitle
       std::string subtitleText = rowSubtitle(i);
-      auto subtitle = renderer.truncatedText(SMALL_FONT_ID, subtitleText.c_str(), rowTextWidth);
+      const size_t lineBreak = subtitleText.find('\n');
+      const std::string firstSubtitle = subtitleText.substr(0, lineBreak);
+      const std::string secondSubtitle = lineBreak == std::string::npos ? std::string()
+                                                                          : subtitleText.substr(lineBreak + 1);
+      auto subtitle = renderer.truncatedText(SMALL_FONT_ID, firstSubtitle.c_str(), rowTextWidth);
       renderer.drawText(SMALL_FONT_ID, textX, itemY + 30, subtitle.c_str(), foreground);
+      if (!secondSubtitle.empty()) {
+        auto tertiary = renderer.truncatedText(SMALL_FONT_ID, secondSubtitle.c_str(), rowTextWidth);
+        renderer.drawText(SMALL_FONT_ID, textX, itemY + 30 + renderer.getLineHeight(SMALL_FONT_ID) + 2,
+                          tertiary.c_str(), foreground);
+      }
     }
 
     // Draw value

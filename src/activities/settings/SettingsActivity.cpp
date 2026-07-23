@@ -18,6 +18,7 @@
 #include "CrossPointSettings.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectionActivity.h"
+#include "activities/home/FileBrowserActivity.h"
 #include "HardcoverSettingsActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "MappedInputManager.h"
@@ -27,6 +28,7 @@
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
+#include "network/ShadowLibrarySettings.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -770,6 +772,19 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::ClockSync:
         startActivityForResult(std::make_unique<ClockSyncActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ShadowLibraryFolder:
+        ShadowLibrarySettings::instance().loadFromFile();
+        startActivityForResult(
+            std::make_unique<FileBrowserActivity>(renderer, mappedInput,
+                                                   ShadowLibrarySettings::instance().downloadDirectory(),
+                                                   FileBrowserActivity::Mode::PickDirectory),
+            [](const ActivityResult& result) {
+              if (!result.isCancelled) {
+                const auto* path = std::get_if<FilePathResult>(&result.data);
+                if (path) ShadowLibrarySettings::instance().setDownloadDirectory(path->path);
+              }
+            });
         break;
       case SettingAction::ReaderFontOptions:
       case SettingAction::ReaderPageLayout:

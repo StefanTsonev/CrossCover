@@ -2,9 +2,10 @@
 
 CrossCover is a personal firmware fork based on [CrossInk](https://github.com/uxjulia/CrossInk) for the Xteink X4.
 
-CrossCover adds Hardcover integration and offline dictionary functionality while retaining the CrossInk reader foundation.
+CrossCover adds Hardcover integration, Anna's Archive search and download support,
+and offline dictionary functionality while retaining the CrossInk reader foundation.
 
-Current release: `1.4.0-crosscover.1`
+Current release: `1.4.0-crosscover.3`
 Based on CrossInk: `1.4.0`
 
 ## Screenshots
@@ -41,6 +42,17 @@ Do not flash CrossCover on:
 - View a lightweight Hardcover library screen
 
 Hardcover actions are user-triggered. CrossCover does not run a background sync task or send page-by-page API updates.
+
+### Anna’s Archive integration
+
+- Open Anna’s Archive from `Home → CrossCover → Anna’s Archive`
+- Search books directly from the device
+- Display title, author, file size, and download count
+- Download books directly to the SD card
+- Choose the download folder from `Settings → System → Anna’s Archive Download Folder`
+- Use a lightweight relay so the device receives only compact search results
+
+Use the feature only for books you are legally allowed to access or download.
 
 ### Offline dictionary lookup
 
@@ -146,10 +158,10 @@ CrossCover follows the upstream CrossInk version and adds a fork-specific suffix
 Example:
 
 ```text
-1.4.0-crosscover.1
+1.4.0-crosscover.3
 ```
 
-This means CrossCover release `1` based on CrossInk `1.4.0`.
+This means CrossCover release `3` based on CrossInk `1.4.0`.
 
 When CrossInk releases `1.4.1`, a corresponding CrossCover release may be named:
 
@@ -170,6 +182,9 @@ CrossCover is an independent personal fork and is not an official CrossInk relea
 - Hardcover progress updates are queued, but separate Hardcover reading sessions are not recorded
 - The first lookup may take longer while the `.qidx` index is created
 - IPA symbols may use readable approximations when the required glyph is not available in the firmware font
+- Search availability depends on the relay and upstream mirrors
+- The current search flow is limited to EPUB results
+- Downloads may fail when all upstream mirrors are unavailable
 
 ## Credits
 

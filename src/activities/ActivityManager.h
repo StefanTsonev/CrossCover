@@ -99,6 +99,7 @@ class ActivityManager {
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();
+  void goToShadowLibrary();
   void goToReader(std::string path, bool suppressBackRelease = false);
   void goToSleep(bool fromTimeout = false);
   void goToBoot();

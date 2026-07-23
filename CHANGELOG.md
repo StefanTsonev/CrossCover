@@ -1,3 +1,14 @@
+## [v1.4.0-crosscover.3] - 2026-07-23
+
+### Added
+
+- Anna’s Archive search and EPUB downloads from the Home menu, using a bounded streaming parser for low-memory devices.
+- Persistent Anna’s Archive download-folder selection under Settings.
+
+### Changed
+
+- CrossCover Home menu grouping for Hardcover and Anna’s Archive.
+
 ## [v1.4.0-crosscover.2] - 2026-07-16
 
 ### Fixed

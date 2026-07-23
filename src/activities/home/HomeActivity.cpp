@@ -28,6 +28,8 @@
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "HardcoverLibraryActivity.h"
+#include "activities/browser/ShadowLibraryActivity.h"
+#include "activities/util/OptionSelectionActivity.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -55,7 +57,7 @@ enum class HomeMenuAction {
   ContinueReading,
   RecentBooks,
   OpdsBrowser,
-  Hardcover,
+  CrossCover,
   ReadingStats,
   Bookmarks,
   FileTransfer,
@@ -69,7 +71,7 @@ struct HomeMenuEntry {
 };
 
 struct HomeMenuEntries {
-  static constexpr int kCapacity = 8;
+  static constexpr int kCapacity = 10;
   std::array<HomeMenuEntry, kCapacity> entries{};
   int count = 0;
 
@@ -258,7 +260,7 @@ void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasRe
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
-  items.push({tr(STR_HARDCOVER), Library, HomeMenuAction::Hardcover});
+  items.push({tr(STR_CROSSCOVER), Library, HomeMenuAction::CrossCover});
   if (hasReadingStats) {
     items.push({tr(STR_READING_STATS), Chart, HomeMenuAction::ReadingStats});
   }
@@ -283,7 +285,7 @@ HomeMenuEntries buildMinimalMenuItems(bool hasOpdsServers, bool hasReadingStats,
   if (hasOpdsServers) {
     items.push({tr(STR_OPDS_BROWSER), Library, HomeMenuAction::OpdsBrowser});
   }
-  items.push({tr(STR_HARDCOVER), Library, HomeMenuAction::Hardcover});
+  items.push({tr(STR_CROSSCOVER), Library, HomeMenuAction::CrossCover});
   if (hasBookmarks || hasClippings) {
     items.push({savedItemsLabel(hasBookmarks, hasClippings), BookmarkIcon, HomeMenuAction::Bookmarks});
   }
@@ -583,7 +585,7 @@ static_assert(HomeActivity::kMaxCachedBooks >= LyraCarouselMetrics::values.homeR
 
 int HomeActivity::getMenuItemCount() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  int count = 5;  // File Browser, Recents, Hardcover, File transfer, Settings
+  int count = 5;  // File Browser, Recents, CrossCover, File transfer, Settings
   if (!metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     count += getVisibleRecentBookCount();
   } else if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -1462,8 +1464,8 @@ void HomeActivity::loop() {
           case HomeMenuAction::OpdsBrowser:
             onOpdsBrowserOpen();
             break;
-          case HomeMenuAction::Hardcover:
-            onHardcoverOpen();
+          case HomeMenuAction::CrossCover:
+            onCrossCoverOpen();
             break;
           case HomeMenuAction::ReadingStats:
             onReadingStatsOpen();
@@ -1661,8 +1663,8 @@ void HomeActivity::loop() {
       case HomeMenuAction::OpdsBrowser:
         onOpdsBrowserOpen();
         break;
-      case HomeMenuAction::Hardcover:
-        onHardcoverOpen();
+      case HomeMenuAction::CrossCover:
+        onCrossCoverOpen();
         break;
       case HomeMenuAction::ReadingStats:
         onReadingStatsOpen();
@@ -1911,6 +1913,31 @@ void HomeActivity::onHardcoverOpen() {
   gCarouselCache.invalidate();
   freeCarouselFrames();
   startActivityForResult(std::make_unique<HardcoverLibraryActivity>(renderer, mappedInput),
+                         [this](const ActivityResult&) { requestUpdate(); });
+}
+
+void HomeActivity::onCrossCoverOpen() {
+  startActivityForResult(
+      std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "CrossCover", StrId::STR_CROSSCOVER,
+                                                std::vector<std::string>{tr(STR_HARDCOVER), tr(STR_SHADOW_LIBRARY)}, 0,
+                                                false, false),
+      [this](const ActivityResult& result) {
+        if (result.isCancelled) return;
+        const auto* selection = std::get_if<OptionSelectionResult>(&result.data);
+        if (!selection) return;
+        if (selection->index == 0) {
+          onHardcoverOpen();
+        } else {
+          onShadowLibraryOpen();
+        }
+      });
+}
+
+void HomeActivity::onShadowLibraryOpen() {
+  freeCoverBuffer();
+  gCarouselCache.invalidate();
+  freeCarouselFrames();
+  startActivityForResult(std::make_unique<ShadowLibraryActivity>(renderer, mappedInput),
                          [this](const ActivityResult&) { requestUpdate(); });
 }
 

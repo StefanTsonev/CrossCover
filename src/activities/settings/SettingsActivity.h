@@ -41,6 +41,7 @@ enum class SettingAction {
   Language,
   DownloadFonts,
   ClockSync,
+  ShadowLibraryFolder,
 };
 
 struct SettingInfo {

@@ -344,6 +344,15 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
   (void)highlightValue;
   (void)rowDimmed;
   const bool hasSubtitle = static_cast<bool>(rowSubtitle);
+  bool hasTertiarySubtitle = false;
+  if (rowSubtitle != nullptr) {
+    for (int i = 0; i < itemCount; ++i) {
+      if (rowSubtitle(i).find('\n') != std::string::npos) {
+        hasTertiarySubtitle = true;
+        break;
+      }
+    }
+  }
   const int titleLineHeight = renderer.getLineHeight(kTitleFontId);
   const int subtitleLineHeight = renderer.getLineHeight(kSubtitleFontId);
   constexpr int subtitleTopPadding = 10;
@@ -351,7 +360,9 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
   constexpr int subtitleInterLineGap = 4;
   const int subtitleRowHeight =
       subtitleTopPadding + titleLineHeight + subtitleInterLineGap + subtitleLineHeight + subtitleBottomPadding;
-  const int rowHeight = hasSubtitle ? subtitleRowHeight : RoundedRaffMetrics::values.listRowHeight;
+  const int rowHeight = hasSubtitle ? subtitleRowHeight +
+      (hasTertiarySubtitle ? renderer.getLineHeight(kSubtitleFontId) + subtitleInterLineGap : 0)
+                           : RoundedRaffMetrics::values.listRowHeight;
   const auto isHeaderRow = [&isHeader](int index) { return isHeader != nullptr && isHeader(index); };
   bool hasHeaderRows = false;
   for (int i = 0; i < itemCount; ++i) {
@@ -428,9 +439,13 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
 
     if (hasSubtitle) {
       const std::string subtitleRaw = rowSubtitle(i);
+      const size_t lineBreak = subtitleRaw.find('\n');
+      const std::string firstSubtitle = subtitleRaw.substr(0, lineBreak);
+      const std::string secondSubtitle = lineBreak == std::string::npos ? std::string()
+                                                                          : subtitleRaw.substr(lineBreak + 1);
       auto title = renderer.truncatedText(kTitleFontId, rowTitle(i).c_str(), textAreaWidth, EpdFontFamily::BOLD);
 
-      if (subtitleRaw.empty()) {
+      if (firstSubtitle.empty()) {
         // If there is no subtitle/author, center title vertically in the full row.
         const int centeredTitleY = rowY + (currentRowHeight - titleLineHeight) / 2;
         renderer.drawText(kTitleFontId, rowX + kInteractiveInsetX, centeredTitleY, title.c_str(), !isSelected,
@@ -439,11 +454,18 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
         const int titleY = rowY + subtitleTopPadding;
         const int subtitleY = titleY + titleLineHeight + subtitleInterLineGap;
         auto subtitle =
-            renderer.truncatedText(kSubtitleFontId, subtitleRaw.c_str(), textAreaWidth, EpdFontFamily::REGULAR);
+            renderer.truncatedText(kSubtitleFontId, firstSubtitle.c_str(), textAreaWidth, EpdFontFamily::REGULAR);
         renderer.drawText(kTitleFontId, rowX + kInteractiveInsetX, titleY, title.c_str(), !isSelected,
                           EpdFontFamily::BOLD);
         renderer.drawText(kSubtitleFontId, rowX + kInteractiveInsetX, subtitleY, subtitle.c_str(), !isSelected,
                           EpdFontFamily::REGULAR);
+        if (!secondSubtitle.empty()) {
+          auto tertiary = renderer.truncatedText(kSubtitleFontId, secondSubtitle.c_str(), textAreaWidth,
+                                                 EpdFontFamily::REGULAR);
+          renderer.drawText(kSubtitleFontId, rowX + kInteractiveInsetX,
+                            subtitleY + subtitleLineHeight + subtitleInterLineGap, tertiary.c_str(), !isSelected,
+                            EpdFontFamily::REGULAR);
+        }
       }
     } else {
       auto title = renderer.truncatedText(kTitleFontId, rowTitle(i).c_str(), textAreaWidth, EpdFontFamily::BOLD);

@@ -261,8 +261,18 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<std::string(int index)>& rowValue, bool highlightValue,
                          const std::function<bool(int index)>& rowDimmed,
                          const std::function<bool(int index)>& isHeader) const {
-  int rowHeight =
-      (rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight;
+  bool hasTertiarySubtitle = false;
+  if (rowSubtitle != nullptr) {
+    for (int i = 0; i < itemCount; ++i) {
+      if (rowSubtitle(i).find('\n') != std::string::npos) {
+        hasTertiarySubtitle = true;
+        break;
+      }
+    }
+  }
+  int rowHeight = (rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight
+                                           : BaseMetrics::values.listRowHeight;
+  if (hasTertiarySubtitle) rowHeight += renderer.getLineHeight(SMALL_FONT_ID) + 4;
   int pageItems = rect.height / rowHeight;
   constexpr int sectionHeaderTopPadding = 15;
 
@@ -353,9 +363,18 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     if (rowSubtitle != nullptr) {
       std::string subtitleText = rowSubtitle(i);
       if (!subtitleText.empty()) {
-        auto subtitle = renderer.truncatedText(SMALL_FONT_ID, subtitleText.c_str(), rowTextWidth);
+        const size_t lineBreak = subtitleText.find('\n');
+        const std::string firstSubtitle = subtitleText.substr(0, lineBreak);
+        const std::string secondSubtitle = lineBreak == std::string::npos ? std::string()
+                                                                            : subtitleText.substr(lineBreak + 1);
+        auto subtitle = renderer.truncatedText(SMALL_FONT_ID, firstSubtitle.c_str(), rowTextWidth);
         renderer.drawText(SMALL_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding, itemY + 22, subtitle.c_str(),
                           i != selectedIndex);
+        if (!secondSubtitle.empty()) {
+          auto tertiary = renderer.truncatedText(SMALL_FONT_ID, secondSubtitle.c_str(), rowTextWidth);
+          renderer.drawText(SMALL_FONT_ID, rect.x + BaseMetrics::values.contentSidePadding,
+                            itemY + 22 + renderer.getLineHeight(SMALL_FONT_ID) + 4, tertiary.c_str(), i != selectedIndex);
+        }
       }
     }
 

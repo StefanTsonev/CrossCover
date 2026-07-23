@@ -772,6 +772,9 @@ void FileBrowserActivity::loop() {
     const std::string entry = entryNameAt(selectorIndex);
     bool isDirectory = (entry.back() == '/');
 
+    // Directory picker never opens files; Confirm only descends into folders.
+    if (mode == Mode::PickDirectory && !isDirectory) return;
+
     // Firmware picker: select file -> return path; navigate into directories normally.
     if (mode == Mode::PickFirmware && !isDirectory) {
       std::string cleanBasePath = basepath;
@@ -806,6 +809,16 @@ void FileBrowserActivity::loop() {
     return;
   }
 
+  // Directory picker: the third mapped button selects the directory currently
+  // shown, while Confirm continues to navigate into a selected directory.
+  if (mode == Mode::PickDirectory && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+    ActivityResult res{FilePathResult{basepath}};
+    res.isCancelled = false;
+    setResult(std::move(res));
+    finish();
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (longPressBackHandled) {
       longPressBackHandled = false;
@@ -825,8 +838,8 @@ void FileBrowserActivity::loop() {
         selectorIndex = findEntry(dirName);
 
         requestUpdate();
-      } else if (mode == Mode::PickFirmware) {
-        // Firmware picker at root: cancel back to caller instead of going home.
+      } else if (mode == Mode::PickFirmware || mode == Mode::PickDirectory) {
+        // Pickers at root: cancel back to caller instead of going home.
         ActivityResult res;
         res.isCancelled = true;
         setResult(std::move(res));
@@ -978,14 +991,21 @@ void FileBrowserActivity::render(RenderLock&&) {
   }
 
   // Help text
-  const char* backLabel = (basepath == "/") ? (mode == Mode::PickFirmware ? tr(STR_BACK) : tr(STR_HOME)) : tr(STR_BACK);
+  const char* backLabel = (basepath == "/") ? ((mode == Mode::Books) ? tr(STR_HOME) : tr(STR_BACK)) : tr(STR_BACK);
   // In PickFirmware mode, Confirm on a .bin returns the path to the caller (not "open"); show
   // STR_SELECT instead. Directories in the same picker still descend, so keep STR_OPEN there.
   const bool selectingFirmwareFile =
       mode == Mode::PickFirmware && visibleEntries > 0 && std::string(entryNameAt(selectorIndex)).back() != '/';
-  const char* confirmLabel = visibleEntries == 0 ? "" : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN));
-  const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, visibleEntries == 0 ? "" : tr(STR_DIR_UP),
-                                            visibleEntries == 0 ? "" : tr(STR_DIR_DOWN));
+  const bool selectingDirectory =
+      mode == Mode::PickDirectory && visibleEntries > 0 && std::string(entryNameAt(selectorIndex)).back() == '/';
+  const char* confirmLabel = visibleEntries == 0 ? "" :
+      (mode == Mode::PickDirectory ? (selectingDirectory ? tr(STR_OPEN) : "")
+                                   : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN)));
+  const char* previousLabel = mode == Mode::PickDirectory ? tr(STR_SELECT) :
+                              (visibleEntries == 0 ? "" : tr(STR_DIR_UP));
+  const char* nextLabel = mode == Mode::PickDirectory ? "" : (visibleEntries == 0 ? "" : tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, previousLabel,
+                                            nextLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   if (mode == Mode::Books && basepath == "/") {

@@ -12,13 +12,14 @@
 OptionSelectionActivity::OptionSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                  std::string activityName, StrId titleId,
                                                  std::vector<std::string> options, uint8_t selectedIndex,
-                                                 bool readerMode)
+                                                 bool readerMode, bool showSelectedValue)
     : Activity(std::move(activityName), renderer, mappedInput),
       titleId_(titleId),
       options_(std::move(options)),
       currentIndex_(selectedIndex),
       selectedIndex_(selectedIndex),
-      readerMode_(readerMode) {}
+      readerMode_(readerMode),
+      showSelectedValue_(showSelectedValue) {}
 
 void OptionSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -108,7 +109,10 @@ void OptionSelectionActivity::render(RenderLock&&) {
   GUI.drawList(
       renderer, Rect{contentX, contentTop, contentWidth, contentHeight}, static_cast<int>(options_.size()),
       selectedIndex_, [this](int index) { return options_[index]; }, nullptr, nullptr,
-      [this](int index) -> std::string { return index == currentIndex_ ? tr(STR_SELECTED) : ""; }, true);
+      [this](int index) -> std::string {
+        return showSelectedValue_ && index == currentIndex_ ? tr(STR_SELECTED) : "";
+      },
+      true);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, readerMode_);
