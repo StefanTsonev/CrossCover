@@ -19,6 +19,7 @@
 #include "ClockSyncActivity.h"
 #include "CrossPointSettings.h"
 #include "FontSelectionActivity.h"
+#include "HardcoverSettingsActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "MappedInputManager.h"
 #include "OpdsServerListActivity.h"
@@ -27,6 +28,7 @@
 #include "SettingsList.h"
 #include "SilentRestart.h"
 #include "StatusBarSettingsActivity.h"
+#include "activities/home/FileBrowserActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -39,6 +41,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "network/ShadowLibrarySettings.h"
 #include "util/DictionaryRegistry.h"
 
 namespace fui = freeink::ui;
@@ -923,6 +926,9 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::Hardcover:
+        startActivityForResult(std::make_unique<HardcoverSettingsActivity>(renderer, mappedInput), resultHandler);
+        break;
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -960,6 +966,17 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::ClockSync:
         startActivityForResult(std::make_unique<ClockSyncActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ShadowLibraryFolder:
+        ShadowLibrarySettings::instance().loadFromFile();
+        startActivityForResult(std::make_unique<FileBrowserActivity>(
+                                   renderer, mappedInput, ShadowLibrarySettings::instance().downloadDirectory(),
+                                   FileBrowserActivity::Mode::PickDirectory),
+                               [](const ActivityResult& result) {
+                                 if (result.isCancelled) return;
+                                 const auto* path = std::get_if<FilePathResult>(&result.data);
+                                 if (path) ShadowLibrarySettings::instance().setDownloadDirectory(path->path);
+                               });
         break;
       case SettingAction::ReaderFontOptions:
       case SettingAction::ReaderPageLayout:

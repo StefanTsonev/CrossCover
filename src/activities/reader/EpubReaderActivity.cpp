@@ -37,6 +37,7 @@
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
 #include "GlobalActions.h"
+#include "HardcoverBookActivity.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "LookedUpWordsActivity.h"
@@ -3371,6 +3372,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::HARDCOVER:
+      openHardcoverMenu();
+      break;
     case EpubReaderMenuActivity::MenuAction::TOGGLE_COMPLETED: {
       const bool markCompleted = !stats.isCompleted;
       setBookCompleted(markCompleted);
@@ -4336,6 +4340,18 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   refreshCachedTimeLeftEstimate();
   stats.save(epub->getCachePath());
   globalStats.save();
+}
+
+void EpubReaderActivity::openHardcoverMenu() {
+  int progressPercent = 0;
+  if (epub) {
+    progressPercent = clampPercent(static_cast<int>(getCurrentBookProgressPercent() + 0.5f));
+  }
+  startActivityForResult(
+      std::make_unique<HardcoverBookActivity>(renderer, mappedInput, epub ? epub->getPath() : std::string{},
+                                              epub ? epub->getTitle() : std::string{},
+                                              epub ? epub->getAuthor() : std::string{}, progressPercent),
+      [this](const ActivityResult&) { requestUpdate(); });
 }
 
 void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {

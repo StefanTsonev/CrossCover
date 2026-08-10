@@ -9,6 +9,11 @@
 
 - CrossCover Home menu grouping for Hardcover and Anna’s Archive.
 
+### Fixed
+
+- Hardcover TLS requests now synchronize the system clock without requiring an available RTC.
+- Restored Hardcover setup and Anna’s Archive download-folder entries in System settings.
+
 ## [v1.4.0-crosscover.2] - 2026-07-16
 
 ### Fixed

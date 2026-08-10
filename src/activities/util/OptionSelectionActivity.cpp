@@ -33,7 +33,8 @@ Rect optionListRect(const GfxRenderer& renderer, const MappedInputManager& mappe
 OptionSelectionActivity::OptionSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                  std::string activityName, const StrId titleId,
                                                  std::vector<std::string> options, const uint8_t selectedIndex,
-                                                 const bool readerMode, const bool showTouchHeaderBackButton)
+                                                 const bool readerMode, const bool showTouchHeaderBackButton,
+                                                 const bool showSelectedValue)
     : Activity(std::move(activityName), renderer, mappedInput),
       titleId_(titleId),
       options_(std::move(options)),
@@ -41,6 +42,7 @@ OptionSelectionActivity::OptionSelectionActivity(GfxRenderer& renderer, MappedIn
       selectedIndex_(selectedIndex),
       readerMode_(readerMode),
       showTouchHeaderBackButton_(showTouchHeaderBackButton),
+      showSelectedValue_(showSelectedValue),
       uiTarget_(makeUiTarget(renderer)),
       app_(uiTarget_, uiTarget_.deviceContext()) {}
 
@@ -143,7 +145,7 @@ void OptionSelectionActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
   for (size_t i = 0; i < options_.size(); ++i) {
     fui::ListItem item;
     item.label = options_[i].c_str();
-    item.value = i == static_cast<size_t>(currentIndex_) ? tr(STR_SELECTED) : nullptr;
+    item.value = showSelectedValue_ && i == static_cast<size_t>(currentIndex_) ? tr(STR_SELECTED) : nullptr;
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);
   }

@@ -15,7 +15,8 @@ class OptionSelectionActivity final : public Activity {
  public:
   OptionSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string activityName,
                           StrId titleId, std::vector<std::string> options, uint8_t selectedIndex,
-                          bool readerMode = false, bool showTouchHeaderBackButton = false);
+                          bool readerMode = false, bool showTouchHeaderBackButton = false,
+                          bool showSelectedValue = true);
 
   void onEnter() override;
   void loop() override;
@@ -33,6 +34,7 @@ class OptionSelectionActivity final : public Activity {
   int selectedIndex_ = 0;
   bool readerMode_ = false;
   bool showTouchHeaderBackButton_ = false;
+  bool showSelectedValue_ = true;
   using UiApp = freeink::ui::FreeInkApp<20, 4>;
   freeink::ui::GfxRendererTarget uiTarget_;
   UiApp app_;

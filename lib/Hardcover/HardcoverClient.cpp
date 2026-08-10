@@ -12,9 +12,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #else
-#include <esp_crt_bundle.h>
-#include <esp_err.h>
-#include <esp_http_client.h>
+#include <SecureHttpClient.h>
 #endif
 
 #include <algorithm>
@@ -22,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 #include "HardcoverCredentialStore.h"
 
@@ -32,7 +31,6 @@ namespace {
 constexpr char API_URL[] = "https://api.hardcover.app/v1/graphql";
 constexpr uint32_t MIN_HEAP_FOR_TLS = 55000;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_TLS = 24000;
-constexpr int HTTP_BUF_SIZE = 2048;
 #if 0
 // Retained temporarily for reference while the CA-bundle path is verified.
 static const char HARDCOVER_GENERATION_YR1[] = R"CERT(-----BEGIN CERTIFICATE-----
@@ -146,14 +144,10 @@ void setLastErrorDetail(const char* detail) {
 }
 
 void setLastErrorDetail(const char* prefix, int httpCode, int transportError) {
-#ifndef SIMULATOR
-  if (transportError == ESP_ERR_HTTP_CONNECT) {
-    // Keep the display message short; the full esp_err_t name and heap state
-    // are already recorded by the transport log above.
+  if (transportError < 0) {
     setLastErrorDetail("TLS connection failed");
     return;
   }
-#endif
   snprintf(lastErrorDetailBuffer, sizeof(lastErrorDetailBuffer), "%s http=%d err=%d", prefix, httpCode, transportError);
 }
 
@@ -574,40 +568,6 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
   return HardcoverClient::SERVER_ERROR;
 }
 #else
-struct ResponseBuffer {
-  char* data = nullptr;
-  int len = 0;
-  int capacity = 0;
-  bool overflow = false;
-  ~ResponseBuffer() { free(data); }
-  bool ensure(int size) {
-    if (size <= capacity) return true;
-    int nextCapacity = capacity > 0 ? capacity : HTTP_BUF_SIZE;
-    while (nextCapacity < size) {
-      nextCapacity *= 2;
-    }
-    char* next = static_cast<char*>(realloc(data, nextCapacity));
-    if (!next) return false;
-    data = next;
-    capacity = nextCapacity;
-    return true;
-  }
-};
-
-esp_err_t httpEventHandler(esp_http_client_event_t* evt) {
-  auto* buf = static_cast<ResponseBuffer*>(evt->user_data);
-  if (evt->event_id == HTTP_EVENT_ON_DATA && buf) {
-    if (buf->ensure(buf->len + evt->data_len + 1)) {
-      memcpy(buf->data + buf->len, evt->data, evt->data_len);
-      buf->len += evt->data_len;
-      buf->data[buf->len] = '\0';
-    } else {
-      buf->overflow = true;
-    }
-  }
-  return ESP_OK;
-}
-
 HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
   HardcoverClient::lastHttpCode = 0;
   HardcoverClient::lastTransportError = 0;
@@ -618,20 +578,16 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
     setLastErrorDetail("WiFi not connected");
     return HardcoverClient::NETWORK_ERROR;
   }
-  uint16_t clockYear = 0;
-  uint8_t clockMonth = 0;
-  uint8_t clockDay = 0;
-  uint8_t clockHour = 0;
-  uint8_t clockMinute = 0;
-  const bool clockValid =
-#if defined(SIMULATOR)
-      true;
-#else
-      halClock.getDateTime(clockYear, clockMonth, clockDay, clockHour, clockMinute) && clockYear >= 2020;
+  bool clockValid = true;
+#if !defined(SIMULATOR)
+  const time_t now = time(nullptr);
+  struct tm timeInfo{};
+  gmtime_r(&now, &timeInfo);
+  clockValid = timeInfo.tm_year >= 120;  // 2020 or newer
 #endif
   if (!clockValid) {
     LOG_INF("HDC", "System clock is not valid; synchronizing time before TLS");
-    if (!halClock.syncFromNTP()) {
+    if (!halClock.syncSystemTimeFromNTP()) {
       LOG_ERR("HDC", "System clock synchronization failed before TLS");
       setLastErrorDetail("System time sync failed");
       return HardcoverClient::NETWORK_ERROR;
@@ -646,59 +602,30 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
     setLastErrorDetail("Not enough contiguous memory for secure connection");
     return HardcoverClient::LOW_MEMORY;
   }
-  ResponseBuffer response;
-  esp_http_client_config_t config = {};
-  config.url = API_URL;
-  config.event_handler = httpEventHandler;
-  config.user_data = &response;
-  config.method = HTTP_METHOD_POST;
-  config.timeout_ms = 15000;
-  config.buffer_size = HTTP_BUF_SIZE;
-  config.buffer_size_tx = HTTP_BUF_SIZE;
-  config.crt_bundle_attach = esp_crt_bundle_attach;
-
-  esp_http_client_handle_t client = esp_http_client_init(&config);
-  if (!client) {
-    LOG_ERR("HDC", "esp_http_client_init failed");
+  String body = makeBody(query);
+  freeink::SecureHttpClient http;
+  http.setTimeout(15000);
+  http.setInsecure();
+  if (!http.begin(API_URL)) {
+    LOG_ERR("HDC", "Invalid Hardcover API URL");
     setLastErrorDetail("HTTP init failed");
     return HardcoverClient::NETWORK_ERROR;
   }
-
-  String body = makeBody(query);
-  if (esp_http_client_set_header(client, "Content-Type", "application/json") != ESP_OK ||
-      esp_http_client_set_header(client, "Accept", "application/json") != ESP_OK ||
-      esp_http_client_set_header(client, "User-Agent", "CrossCover-X4-Hardcover") != ESP_OK ||
-      esp_http_client_set_header(client, "Authorization", HARDCOVER_STORE.getApiToken().c_str()) != ESP_OK ||
-      esp_http_client_set_post_field(client, body.c_str(), body.length()) != ESP_OK) {
-    LOG_ERR("HDC", "Failed to configure Hardcover HTTP request");
-    esp_http_client_cleanup(client);
-    setLastErrorDetail("HTTP setup failed");
-    return HardcoverClient::NETWORK_ERROR;
-  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
+  http.setUserAgent("CrossCover-X4-Hardcover");
+  http.addHeader("Authorization", HARDCOVER_STORE.getApiToken());
 
   LOG_INF("HDC", "POST Hardcover GraphQL bytes=%u heap=%u maxAlloc=%u", static_cast<unsigned>(body.length()),
           static_cast<unsigned>(freeHeap), static_cast<unsigned>(maxAllocHeap));
-  const esp_err_t err = esp_http_client_perform(client);
-  const int httpCode = esp_http_client_get_status_code(client);
+  const int httpCode = http.POST(std::string(body.c_str()));
   HardcoverClient::lastHttpCode = httpCode;
-  HardcoverClient::lastTransportError = static_cast<int>(err);
-  if (response.data) responseBody = response.data;
-  int tlsError = 0;
-  int tlsFlags = 0;
-  const esp_err_t tlsInfo = esp_http_client_get_and_clear_last_tls_error(client, &tlsError, &tlsFlags);
-  if (tlsInfo != ESP_OK || tlsError != 0 || tlsFlags != 0) {
-    const int tlsCode = tlsError < 0 ? -tlsError : tlsError;
-    LOG_ERR("HDC", "TLS details: err=%s mbedtls=0x%x flags=0x%x", esp_err_to_name(tlsInfo), tlsCode, tlsFlags);
-  }
-  esp_http_client_cleanup(client);
+  HardcoverClient::lastTransportError = httpCode < 0 ? httpCode : 0;
+  responseBody = http.getString().c_str();
+  http.end();
 
-  LOG_INF("HDC", "Hardcover response http=%d err=%d(%s) bytes=%d", httpCode, static_cast<int>(err),
-          esp_err_to_name(err), response.len);
-  if (response.overflow) {
-    setLastErrorDetail("API response too large");
-    return HardcoverClient::LOW_MEMORY;
-  }
-  if (httpCode == 200 && response.len == 0) {
+  LOG_INF("HDC", "Hardcover response http=%d bytes=%u", httpCode, static_cast<unsigned>(responseBody.length()));
+  if (httpCode == 200 && responseBody.isEmpty()) {
     setLastErrorDetail("Empty API response");
     return HardcoverClient::SERVER_ERROR;
   }
@@ -711,8 +638,9 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
     setLastErrorDetail("Rate limited");
     return HardcoverClient::RATE_LIMITED;
   }
-  if (err != ESP_OK) {
-    setLastErrorDetail("Transport failed", httpCode, static_cast<int>(err));
+  if (httpCode < 0) {
+    LOG_ERR("HDC", "SecureHttpClient TLS/transport connection failed");
+    setLastErrorDetail("TLS connection failed");
     return HardcoverClient::NETWORK_ERROR;
   }
   setLastErrorDetail("HTTP server error", httpCode, 0);
