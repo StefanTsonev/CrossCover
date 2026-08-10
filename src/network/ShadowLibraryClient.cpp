@@ -1,13 +1,13 @@
 #include "ShadowLibraryClient.h"
 
-#include "HttpDownloader.h"
-
 #include <ArduinoJson.h>
 #include <Logging.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+
+#include "HttpDownloader.h"
 
 namespace {
 constexpr size_t MAX_TAG_BYTES = 512;
