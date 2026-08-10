@@ -153,20 +153,21 @@ void ShadowLibraryActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
-  GUI.drawList(renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(resultCount), selectedIndex,
-               [this](int index) { return results[index].title; },
-               [this](int index) {
-                 std::string metadata = results[index].author;
-                 std::string details = results[index].size;
-                 if (!results[index].downloads.empty()) {
-                   if (!details.empty()) details += " · ";
-                   details += results[index].downloads + " ";
-                   details += tr(STR_SHADOW_LIBRARY_DOWNLOADS);
-                 }
-                 if (!details.empty()) metadata += "\n" + details;
-                 return metadata;
-               },
-               nullptr, nullptr, false);
+  GUI.drawList(
+      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(resultCount), selectedIndex,
+      [this](int index) { return results[index].title; },
+      [this](int index) {
+        std::string metadata = results[index].author;
+        std::string details = results[index].size;
+        if (!results[index].downloads.empty()) {
+          if (!details.empty()) details += " · ";
+          details += results[index].downloads + " ";
+          details += tr(STR_SHADOW_LIBRARY_DOWNLOADS);
+        }
+        if (!details.empty()) metadata += "\n" + details;
+        return metadata;
+      },
+      nullptr, nullptr, false);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DOWNLOAD), "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
