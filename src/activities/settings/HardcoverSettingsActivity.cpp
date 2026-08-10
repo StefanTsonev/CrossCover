@@ -1,7 +1,7 @@
 #include "HardcoverSettingsActivity.h"
 
-#include <GfxRenderer.h>
 #include <FontCacheManager.h>
+#include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
@@ -48,9 +48,9 @@ void prepareHardcoverAuthentication(GfxRenderer& renderer) {
   if (auto* const fontCache = renderer.getFontCacheManager()) {
     fontCache->clearCache();
   }
-  LOG_INF("HDC", "Prepared authentication memory: free=%u->%u maxAlloc=%u->%u",
-          static_cast<unsigned>(freeBefore), static_cast<unsigned>(ESP.getFreeHeap()),
-          static_cast<unsigned>(maxBefore), static_cast<unsigned>(ESP.getMaxAllocHeap()));
+  LOG_INF("HDC", "Prepared authentication memory: free=%u->%u maxAlloc=%u->%u", static_cast<unsigned>(freeBefore),
+          static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(maxBefore),
+          static_cast<unsigned>(ESP.getMaxAllocHeap()));
 }
 
 }  // namespace
@@ -113,9 +113,9 @@ void HardcoverSettingsActivity::handleSelection() {
     prepareHardcoverAuthentication(renderer);
     const auto error = HardcoverClient::authenticate();
     char errorBuffer[128];
-    GUI.drawPopup(renderer,
-                  error == HardcoverClient::OK ? tr(STR_HARDCOVER_AUTH_READY)
-                                               : hardcoverErrorMessage(error, errorBuffer, sizeof(errorBuffer)));
+    GUI.drawPopup(renderer, error == HardcoverClient::OK
+                                ? tr(STR_HARDCOVER_AUTH_READY)
+                                : hardcoverErrorMessage(error, errorBuffer, sizeof(errorBuffer)));
     requestUpdate();
   } else if (selectedIndex == ClearKey) {
     HARDCOVER_STORE.clearApiToken();
@@ -144,8 +144,7 @@ void HardcoverSettingsActivity::render(RenderLock&&) {
     listTop = y + metrics.verticalSpacing;
   }
   GUI.drawList(
-      renderer, Rect{0, listTop, pageWidth, std::max(0, contentBottom - listTop)},
-      Count, selectedIndex,
+      renderer, Rect{0, listTop, pageWidth, std::max(0, contentBottom - listTop)}, Count, selectedIndex,
       [](int index) { return std::string(I18N.get(kMenuItems[index])); }, nullptr, nullptr,
       [](int index) {
         if (index == ImportKey)
