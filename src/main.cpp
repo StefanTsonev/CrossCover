@@ -698,9 +698,12 @@ void setup() {
   delay(250);
   // Web Serial sends file data in 256-byte chunks and waits for a 1-byte ACK.
   // HWCDC defaults to a 256-byte RX queue, which is fine for logs but too small
-  // for chunked file transfer.
+  // for chunked file transfer. The simulator's HWCDC stub does not expose the
+  // ESP32 buffer controls.
+#ifndef SIMULATOR
   logSerial.setRxBufferSize(1024);
   logSerial.setTxBufferSize(1024);
+#endif
   Serial.begin(115200);
 #ifndef SIMULATOR
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
@@ -741,7 +744,9 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+#ifndef SIMULATOR
   Storage.installDateTimeCallback(&SETTINGS.clockUtcOffsetQ);
+#endif
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
