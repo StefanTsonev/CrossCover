@@ -8,8 +8,8 @@
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
-#include "activities/network/WifiSelectionActivity.h"
 #include "activities/home/FileBrowserActivity.h"
+#include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -115,12 +115,14 @@ void ShadowLibraryActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  GUI.drawHeader(renderer, Rect{0, UITheme::getInstance().getMetrics().topPadding, pageWidth,
-                                UITheme::getInstance().getMetrics().headerHeight},
+  GUI.drawHeader(renderer,
+                 Rect{0, UITheme::getInstance().getMetrics().topPadding, pageWidth,
+                      UITheme::getInstance().getMetrics().headerHeight},
                  tr(STR_SHADOW_LIBRARY));
 
   if (state == State::CHECK_WIFI || state == State::SEARCHING || state == State::SEARCH_INPUT) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, statusMessage.empty() ? tr(STR_LOADING) : statusMessage.c_str());
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2,
+                              statusMessage.empty() ? tr(STR_LOADING) : statusMessage.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
