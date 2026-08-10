@@ -619,7 +619,18 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
     setLastErrorDetail("WiFi not connected");
     return HardcoverClient::NETWORK_ERROR;
   }
-  if (!halClock.isSystemTimeValid()) {
+  uint16_t clockYear = 0;
+  uint8_t clockMonth = 0;
+  uint8_t clockDay = 0;
+  uint8_t clockHour = 0;
+  uint8_t clockMinute = 0;
+  const bool clockValid =
+#if defined(SIMULATOR)
+      true;
+#else
+      halClock.getDateTime(clockYear, clockMonth, clockDay, clockHour, clockMinute) && clockYear >= 2020;
+#endif
+  if (!clockValid) {
     LOG_INF("HDC", "System clock is not valid; synchronizing time before TLS");
     if (!halClock.syncFromNTP()) {
       LOG_ERR("HDC", "System clock synchronization failed before TLS");

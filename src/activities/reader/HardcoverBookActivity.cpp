@@ -33,14 +33,14 @@ bool looksLikeIsbn(const std::string& text) {
     }
   }
   return digitCount == 10 || digitCount == 13;
-}  // namespace
+}
 
 bool isPlainNumber(const std::string& text) {
   if (text.empty()) return false;
   return std::all_of(text.begin(), text.end(), [](const char c) { return c >= '0' && c <= '9'; });
 }
 
-}
+}  // namespace
 
 void HardcoverBookActivity::onEnter() {
   Activity::onEnter();

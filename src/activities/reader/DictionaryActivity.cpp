@@ -3,13 +3,13 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
-#include <cctype>
 #include <algorithm>
+#include <cctype>
 #include <utility>
 
-#include "StarDictReader.h"
 #include "CrossPointSettings.h"
 #include "DictionaryRegistry.h"
+#include "StarDictReader.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -125,9 +125,8 @@ void DictionaryActivity::onEnter() {
     requestUpdate();
     return;
   }
-  auto selected = std::find_if(dictionaries.begin(), dictionaries.end(), [](const DictionaryEntry& item) {
-    return item.name == SETTINGS.dictionary;
-  });
+  auto selected = std::find_if(dictionaries.begin(), dictionaries.end(),
+                               [](const DictionaryEntry& item) { return item.name == SETTINGS.dictionary; });
   if (selected == dictionaries.end()) selected = dictionaries.begin();
   const std::string dictionaryBase = "/.crosspoint/dictionaries/" + selected->name + "/" + selected->stem;
   StarDictReader reader(dictionaryBase);
