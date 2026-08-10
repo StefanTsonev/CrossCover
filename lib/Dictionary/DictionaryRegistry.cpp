@@ -47,9 +47,9 @@ void discover(std::vector<DictionaryEntry>& out) {
     if (findStem(folder, stem)) out.push_back({name, std::move(stem)});
   }
   std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
-    return std::lexicographical_compare(a.name.begin(), a.name.end(), b.name.begin(), b.name.end(),
-                                        [](char x, char y) { return std::tolower(static_cast<unsigned char>(x)) <
-                                                                    std::tolower(static_cast<unsigned char>(y)); });
+    return std::lexicographical_compare(a.name.begin(), a.name.end(), b.name.begin(), b.name.end(), [](char x, char y) {
+      return std::tolower(static_cast<unsigned char>(x)) < std::tolower(static_cast<unsigned char>(y));
+    });
   });
 }
 

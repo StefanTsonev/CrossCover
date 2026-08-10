@@ -6,7 +6,8 @@
 #include "WString.h"
 
 namespace ArduinoJson {
-template <> struct Converter<String> {
+template <>
+struct Converter<String> {
   static void toJson(const String& src, JsonVariant dst) { dst.set(src.c_str()); }
 
   static String fromJson(JsonVariantConst src) {

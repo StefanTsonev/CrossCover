@@ -17,8 +17,8 @@
 #include <esp_http_client.h>
 #endif
 
-#include <cctype>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -154,8 +154,7 @@ void setLastErrorDetail(const char* prefix, int httpCode, int transportError) {
     return;
   }
 #endif
-  snprintf(lastErrorDetailBuffer, sizeof(lastErrorDetailBuffer), "%s http=%d err=%d", prefix, httpCode,
-           transportError);
+  snprintf(lastErrorDetailBuffer, sizeof(lastErrorDetailBuffer), "%s http=%d err=%d", prefix, httpCode, transportError);
 }
 
 void copyBodyPreview(const char* body, char* preview, const size_t previewSize) {
@@ -354,7 +353,8 @@ bool containsIgnoreCase(const char* text, const char* needle) {
   for (size_t i = 0; text[i] != '\0'; i++) {
     size_t j = 0;
     while (j < needleLen && text[i + j] != '\0' &&
-           std::tolower(static_cast<unsigned char>(text[i + j])) == std::tolower(static_cast<unsigned char>(needle[j]))) {
+           std::tolower(static_cast<unsigned char>(text[i + j])) ==
+               std::tolower(static_cast<unsigned char>(needle[j]))) {
       j++;
     }
     if (j == needleLen) return true;
@@ -421,14 +421,13 @@ bool titlesMatchClosely(const char* expectedTitle, const char* candidateTitle) {
 }
 
 HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTitle,
-                                        std::vector<HardcoverBookSearchResult>& outBooks, const int limit) {
+                                       std::vector<HardcoverBookSearchResult>& outBooks, const int limit) {
   outBooks.clear();
   JsonDocument doc;
   JsonDocument filter;
   filter["data"]["search"]["ids"][0] = true;
   filter["errors"][0]["message"] = true;
-  const DeserializationError jsonError =
-      deserializeJson(doc, body ? body : "", DeserializationOption::Filter(filter));
+  const DeserializationError jsonError = deserializeJson(doc, body ? body : "", DeserializationOption::Filter(filter));
   if (jsonError) {
     char preview[80];
     copyBodyPreview(body, preview, sizeof(preview));
@@ -461,8 +460,8 @@ HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTit
   pos = static_cast<size_t>(prefixLen);
   int idCount = 0;
   if (!appendSearchIds(query, sizeof(query), pos, ids, idCount)) return HardcoverClient::LOW_MEMORY;
-  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
-                                 "}}, limit: %d) { id title compilation } }", idCount);
+  const int suffixLen =
+      snprintf(query + pos, sizeof(query) - pos, "}}, limit: %d) { id title compilation } }", idCount);
   if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return HardcoverClient::LOW_MEMORY;
 
   String detailsBody;
@@ -516,7 +515,7 @@ HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTit
 }
 
 HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTitle,
-                                        HardcoverBookSearchResult& outBook) {
+                                       HardcoverBookSearchResult& outBook) {
   std::vector<HardcoverBookSearchResult> books;
   const HardcoverClient::Error err = parseBookSearch(body, expectedTitle, books, 1);
   if (err != HardcoverClient::OK) return err;
@@ -748,8 +747,7 @@ HardcoverClient::Error findUserBookRecord(const int bookId, UserBookRecord& outR
   snprintf(query, sizeof(query),
            "query { user_books(where: {user_id: {_eq: %d}, book_id: {_eq: %d}}, limit: 1) { id edition_id book { "
            "pages } user_book_reads(order_by: {started_at: desc}, limit: 1) { id } } }",
-           userId,
-           bookId);
+           userId, bookId);
   String body;
   const HardcoverClient::Error err = postGraphql(query, body);
   return err == HardcoverClient::OK ? parseUserBookRecord(body.c_str(), outRecord) : err;
@@ -762,12 +760,10 @@ HardcoverClient::Error HardcoverClient::upsertBookStatus(int bookId, int statusI
 
   char query[256];
   if (userBook.id > 0) {
-    snprintf(query, sizeof(query),
-             "mutation { update_user_book(id: %d, object: {status_id: %d}) { id } }",
-             userBook.id, statusId);
+    snprintf(query, sizeof(query), "mutation { update_user_book(id: %d, object: {status_id: %d}) { id } }", userBook.id,
+             statusId);
   } else {
-    snprintf(query, sizeof(query),
-             "mutation { insert_user_book(object: {book_id: %d, status_id: %d}) { id } }", bookId,
+    snprintf(query, sizeof(query), "mutation { insert_user_book(object: {book_id: %d, status_id: %d}) { id } }", bookId,
              statusId);
   }
   String body;
@@ -799,8 +795,7 @@ HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressP
 
   char query[320];
   if (userBook.readId > 0) {
-    snprintf(query, sizeof(query),
-             "mutation { update_user_book_read(id: %d, object: {progress_pages: %d}) { id } }",
+    snprintf(query, sizeof(query), "mutation { update_user_book_read(id: %d, object: {progress_pages: %d}) { id } }",
              userBook.readId, progressPages);
   } else if (userBook.editionId > 0) {
     snprintf(query, sizeof(query),
@@ -824,13 +819,11 @@ HardcoverClient::Error HardcoverClient::rateBook(int bookId, int rating) {
 
   char query[256];
   if (userBook.id > 0) {
-    snprintf(query, sizeof(query),
-             "mutation { update_user_book(id: %d, object: {rating: %d}) { id } }",
-             userBook.id, rating);
+    snprintf(query, sizeof(query), "mutation { update_user_book(id: %d, object: {rating: %d}) { id } }", userBook.id,
+             rating);
   } else {
     snprintf(query, sizeof(query),
-             "mutation { insert_user_book(object: {book_id: %d, status_id: 3, rating: %d}) { id } }",
-             bookId, rating);
+             "mutation { insert_user_book(object: {book_id: %d, status_id: 3, rating: %d}) { id } }", bookId, rating);
   }
   String body;
   err = postGraphql(query, body);
@@ -863,13 +856,12 @@ HardcoverClient::Error HardcoverClient::searchBook(const std::string& searchQuer
 
   char query[384];
   size_t pos = 0;
-  const int prefixLen =
-      snprintf(query, sizeof(query), "query { search(query: ");
+  const int prefixLen = snprintf(query, sizeof(query), "query { search(query: ");
   if (prefixLen <= 0 || static_cast<size_t>(prefixLen) >= sizeof(query)) return LOW_MEMORY;
   pos = static_cast<size_t>(prefixLen);
   if (!appendGraphqlStringLiteral(query, sizeof(query), pos, searchQuery.c_str())) return LOW_MEMORY;
-  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
-                                 ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
+  const int suffixLen =
+      snprintf(query + pos, sizeof(query) - pos, ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
   if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return LOW_MEMORY;
 
   String body;
@@ -887,8 +879,7 @@ HardcoverClient::Error HardcoverClient::searchBook(const std::string& title, con
 }
 
 HardcoverClient::Error HardcoverClient::searchBooks(const std::string& title, const std::string& author,
-                                                    std::vector<HardcoverBookSearchResult>& outBooks,
-                                                    const int limit) {
+                                                    std::vector<HardcoverBookSearchResult>& outBooks, const int limit) {
   outBooks.clear();
   outBooks.reserve(static_cast<size_t>(std::max(1, std::min(limit, 5))));
   char searchText[192];
@@ -906,8 +897,8 @@ HardcoverClient::Error HardcoverClient::searchBooks(const std::string& title, co
   if (prefixLen <= 0 || static_cast<size_t>(prefixLen) >= sizeof(query)) return LOW_MEMORY;
   pos = static_cast<size_t>(prefixLen);
   if (!appendGraphqlStringLiteral(query, sizeof(query), pos, searchText)) return LOW_MEMORY;
-  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
-                                 ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
+  const int suffixLen =
+      snprintf(query + pos, sizeof(query) - pos, ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
   if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return LOW_MEMORY;
 
   String body;
@@ -925,8 +916,8 @@ void HardcoverClient::shutdownNetwork() {
   WiFi.disconnect(false);
   delay(30);
   WiFi.mode(WIFI_OFF);
-  LOG_INF("HDC", "Hardcover Wi-Fi shutdown complete: free=%u maxAlloc=%u",
-          static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(ESP.getMaxAllocHeap()));
+  LOG_INF("HDC", "Hardcover Wi-Fi shutdown complete: free=%u maxAlloc=%u", static_cast<unsigned>(ESP.getFreeHeap()),
+          static_cast<unsigned>(ESP.getMaxAllocHeap()));
 }
 
 const char* HardcoverClient::errorString(Error error) {

@@ -48,7 +48,7 @@ JsonObject findLink(JsonArray links, const std::string& path) {
   }
   return JsonObject();
 }
-}
+}  // namespace
 
 bool HardcoverBookLinkStore::getLink(const std::string& path, HardcoverBookLink& out) const {
   if (!Storage.exists(HARDCOVER_LINKS_JSON)) return false;
@@ -160,7 +160,7 @@ bool updatePendingInt(const std::string& path, const char* key, const int value)
   return saveLinksDocument(doc);
 }
 
-}
+}  // namespace
 
 bool HardcoverBookLinkStore::queueStatus(const std::string& path, const int statusId) const {
   return updatePendingInt(path, "pendingStatusId", statusId);
@@ -176,8 +176,8 @@ bool HardcoverBookLinkStore::queueRating(const std::string& path, int rating) co
   return updatePendingInt(path, "pendingRating", rating);
 }
 
-bool HardcoverBookLinkStore::queueLookup(const std::string& path, const std::string& title,
-                                         const std::string& author, const std::string& query) const {
+bool HardcoverBookLinkStore::queueLookup(const std::string& path, const std::string& title, const std::string& author,
+                                         const std::string& query) const {
   JsonDocument doc;
   if (!loadLinksDocument(doc)) return false;
   JsonObject link = findLink(ensureLinksArray(doc), path);

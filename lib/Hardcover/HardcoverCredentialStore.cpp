@@ -56,7 +56,8 @@ std::string stripTokenWrapper(std::string token) {
 
   char* scratch = token.empty() ? nullptr : token.data();
   token = trimToken(scratch);
-  if (token.size() >= 2 && ((token.front() == '"' && token.back() == '"') || (token.front() == '\'' && token.back() == '\''))) {
+  if (token.size() >= 2 &&
+      ((token.front() == '"' && token.back() == '"') || (token.front() == '\'' && token.back() == '\''))) {
     token = token.substr(1, token.size() - 2);
   }
   scratch = token.empty() ? nullptr : token.data();
@@ -68,7 +69,7 @@ std::string normalizeToken(const std::string& token) {
   if (normalized.empty() || startsWithBearer(normalized)) return normalized;
   return std::string("Bearer ") + normalized;
 }
-}
+}  // namespace
 
 bool HardcoverCredentialStore::saveToFile() const {
   Storage.mkdir("/.crosspoint");
@@ -120,8 +121,8 @@ bool HardcoverCredentialStore::importTokenFile() {
     return false;
   }
 
-  const size_t bytesRead =
-      Storage.readFileToBuffer(HARDCOVER_TOKEN_TXT, token.get(), HARDCOVER_TOKEN_BUFFER_SIZE, HARDCOVER_TOKEN_BUFFER_SIZE - 1);
+  const size_t bytesRead = Storage.readFileToBuffer(HARDCOVER_TOKEN_TXT, token.get(), HARDCOVER_TOKEN_BUFFER_SIZE,
+                                                    HARDCOVER_TOKEN_BUFFER_SIZE - 1);
   if (bytesRead == 0) return false;
   if (bytesRead >= HARDCOVER_TOKEN_BUFFER_SIZE - 1) {
     LOG_ERR("HDC", "Hardcover token file is too large or was truncated");

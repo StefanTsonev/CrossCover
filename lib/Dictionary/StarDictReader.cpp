@@ -12,9 +12,7 @@ namespace {
 constexpr size_t MAX_INDEX_WORD_BYTES = 256;
 constexpr size_t MAX_DEFINITION_BYTES = 8192;
 
-bool isTrimCharacter(const unsigned char c) {
-  return std::isspace(c) || std::ispunct(c);
-}
+bool isTrimCharacter(const unsigned char c) { return std::isspace(c) || std::ispunct(c); }
 
 bool normalizedEquals(const std::string& indexed, const std::string& wanted) {
   size_t start = 0;
@@ -72,8 +70,8 @@ bool StarDictReader::needsIndex() const {
   FsFile sidecar;
   if (!Storage.openFileForRead("DICT", basePath + ".qidx", sidecar)) return true;
   uint32_t header[4]{};
-  return sidecar.read(header, sizeof(header)) != sizeof(header) || header[0] != QIDX_MAGIC || header[1] != QIDX_VERSION ||
-         header[2] != indexSize;
+  return sidecar.read(header, sizeof(header)) != sizeof(header) || header[0] != QIDX_MAGIC ||
+         header[1] != QIDX_VERSION || header[2] != indexSize;
 }
 
 bool StarDictReader::buildIndex() {
@@ -149,8 +147,10 @@ StarDictReader::Result StarDictReader::lookup(const std::string& input, std::str
           break;
         }
         if (!readIndexWord(index, indexedWord)) break;
-        if (normalizedWord(indexedWord) <= wanted) low = middle;
-        else high = middle - 1;
+        if (normalizedWord(indexedWord) <= wanted)
+          low = middle;
+        else
+          high = middle - 1;
       }
       sidecar.seek(sizeof(header) + low * sizeof(scanStart));
       sidecar.read(&scanStart, sizeof(scanStart));
