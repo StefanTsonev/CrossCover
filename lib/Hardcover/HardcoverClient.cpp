@@ -546,10 +546,7 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
   HTTPClient http;
   WiFiClientSecure secureClient;
   secureClient.setInsecure();
-  if (!http.begin(secureClient, API_URL)) {
-    setLastErrorDetail("HTTP begin failed");
-    return HardcoverClient::NETWORK_ERROR;
-  }
+  http.begin(secureClient, API_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
   http.addHeader("User-Agent", "CrossCover-X4-Hardcover");

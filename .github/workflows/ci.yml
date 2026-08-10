@@ -1,0 +1,60 @@
+name: CrossCover CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  firmware:
+    name: Firmware (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          - default
+          - simulator
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format cppcheck libssl-dev libsdl2-dev
+          python -m pip install --upgrade \
+            https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', '.gitmodules') }}
+          restore-keys: |
+            ${{ runner.os }}-platformio-
+
+      - name: Check whitespace
+        run: git diff --check HEAD^ HEAD
+
+      - name: Build firmware
+        run: pio run -e "${{ matrix.environment }}"
+
+      - name: Static analysis
+        if: matrix.environment == 'default'
+        run: |
+          pio check -e default \
+            --fail-on-defect low \
+            --fail-on-defect medium \
+            --fail-on-defect high

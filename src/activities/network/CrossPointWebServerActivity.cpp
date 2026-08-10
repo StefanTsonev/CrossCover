@@ -226,8 +226,9 @@ void CrossPointWebServerActivity::startAccessPoint() {
 
   // Start soft AP
   bool apStarted;
-  if (AP_PASSWORD && strlen(AP_PASSWORD) >= 8) {
-    apStarted = WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
+  const char* const apPassword = AP_PASSWORD;
+  if (apPassword != nullptr && strlen(apPassword) >= 8) {
+    apStarted = WiFi.softAP(AP_SSID, apPassword, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
   } else {
     // Open network (no password)
     apStarted = WiFi.softAP(AP_SSID, nullptr, AP_CHANNEL, false, AP_MAX_CONNECTIONS);

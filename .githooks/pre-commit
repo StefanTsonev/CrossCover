@@ -13,10 +13,31 @@ while IFS= read -r -d '' file; do
   staged_files+=("${file}")
 done < <(git diff --cached --name-only -z --diff-filter=ACMR)
 
-# Intentionally format all currently modified tracked C/C++ files.
-# The helper handles no-op cases and exits 0 when nothing matches.
-echo "Running clang-format fix before commit..."
-./bin/clang-format-fix
+# Format only staged C/C++ files. The previous hook formatted every modified
+# tracked file, which could silently change unrelated unstaged work.
+format_files=()
+for file in "${staged_files[@]}"; do
+  case "$file" in
+    *.c|*.cc|*.cpp|*.h|*.hh|*.hpp) format_files+=("$file") ;;
+  esac
+done
+
+if ((${#format_files[@]})); then
+  if command -v clang-format-21 >/dev/null 2>&1; then
+    clang_format_bin="clang-format-21"
+  elif command -v clang-format >/dev/null 2>&1; then
+    clang_format_bin="clang-format"
+  else
+    echo "WARNING: clang-format was not found; skipping local formatting."
+    echo "Install LLVM/clang-format 21+ before relying on local formatting checks."
+    clang_format_bin=""
+  fi
+
+  if [[ -n "$clang_format_bin" ]]; then
+    echo "Running $clang_format_bin on staged C/C++ files..."
+    "$clang_format_bin" -i -- "${format_files[@]}"
+  fi
+fi
 
 # Ensure formatting changes are included in the pending commit without
 # staging unrelated tracked modifications from other files in the
