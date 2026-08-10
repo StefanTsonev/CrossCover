@@ -409,9 +409,13 @@ void WifiSelectionActivity::attemptConnection() {
   // Abort any in-progress SDK auto-connect before our explicit begin().
   // Do not erase the AP config or power-cycle the radio; some routers fail the
   // next WPA handshake after that heavier reset.
+#ifdef SIMULATOR
+  WiFi.disconnect(false, false);
+#else
   if (!WiFi.disconnect(false, false, 1000)) {
     LOG_DBG("WIFI", "Disconnect before begin timed out; continuing with explicit begin");
   }
+#endif
   delay(100);
 #ifndef SIMULATOR
   sLastStaDisconnectReason = 0;
@@ -464,7 +468,12 @@ void WifiSelectionActivity::checkConnectionStatus() {
     // Sync system time from NTP on the first successful WiFi connection. X4
     // has no RTC, but TLS still needs a current system time for certificate
     // validity checks. X3 also copies the synchronized time to its DS3231.
-    const bool needsNetworkTime = !halClock.isSystemTimeValid() ||
+#ifdef SIMULATOR
+    constexpr bool systemTimeValid = true;
+#else
+    const bool systemTimeValid = halClock.isSystemTimeValid();
+#endif
+    const bool needsNetworkTime = !systemTimeValid ||
                                   (halClock.isAvailable() &&
                                    (!SETTINGS.clockHasBeenSynced || !SETTINGS.clockDateHasBeenSynced));
     if (needsNetworkTime) {
