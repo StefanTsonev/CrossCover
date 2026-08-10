@@ -23,8 +23,20 @@ for file in "${staged_files[@]}"; do
 done
 
 if ((${#format_files[@]})); then
-  echo "Running clang-format on staged C/C++ files..."
-  clang-format -i -- "${format_files[@]}"
+  if command -v clang-format-21 >/dev/null 2>&1; then
+    clang_format_bin="clang-format-21"
+  elif command -v clang-format >/dev/null 2>&1; then
+    clang_format_bin="clang-format"
+  else
+    echo "WARNING: clang-format was not found; skipping local formatting."
+    echo "Install LLVM/clang-format 21+ before relying on local formatting checks."
+    clang_format_bin=""
+  fi
+
+  if [[ -n "$clang_format_bin" ]]; then
+    echo "Running $clang_format_bin on staged C/C++ files..."
+    "$clang_format_bin" -i -- "${format_files[@]}"
+  fi
 fi
 
 # Ensure formatting changes are included in the pending commit without
