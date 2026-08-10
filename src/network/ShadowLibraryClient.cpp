@@ -1,6 +1,7 @@
 #include "ShadowLibraryClient.h"
 
 #include "HttpDownloader.h"
+
 #include <ArduinoJson.h>
 #include <Logging.h>
 
@@ -71,8 +72,7 @@ void decodeBasicEntities(std::string& value) {
     const char* encoded;
     const char decoded;
   };
-  constexpr Entity entities[] = {{"&amp;", '&'}, {"&quot;", '"'}, {"&#39;", '\''},
-                                 {"&lt;", '<'},   {"&gt;", '>'}};
+  constexpr Entity entities[] = {{"&amp;", '&'}, {"&quot;", '"'}, {"&#39;", '\''}, {"&lt;", '<'}, {"&gt;", '>'}};
   for (const auto& entity : entities) {
     size_t pos = 0;
     while ((pos = value.find(entity.encoded, pos)) != std::string::npos) {
@@ -157,7 +157,8 @@ class SearchParser {
         (info.empty() || info.find("pdf") != std::string::npos || info.find("epub") != std::string::npos ||
          info.find("EPUB") != std::string::npos || info.find("PDF") != std::string::npos)) {
       if (resultCount_ < capacity_) {
-        card_.format = (info.find("pdf") != std::string::npos || info.find("PDF") != std::string::npos) ? "pdf" : "epub";
+        card_.format =
+            (info.find("pdf") != std::string::npos || info.find("PDF") != std::string::npos) ? "pdf" : "epub";
         results_[resultCount_++] = std::move(card_);
       }
     }
@@ -183,8 +184,7 @@ class SearchParser {
     const std::string name = tagName(tag_);
     if (name.empty()) return;
 
-    if (!closing && name == "div" && hasClass(tag_, "pt-3") && hasClass(tag_, "pb-3") &&
-        hasClass(tag_, "border-b")) {
+    if (!closing && name == "div" && hasClass(tag_, "pt-3") && hasClass(tag_, "pb-3") && hasClass(tag_, "border-b")) {
       if (inCard_) return;
       inCard_ = true;
       divDepth_ = 1;
@@ -242,7 +242,6 @@ class SearchParser {
       if (closing && capture_ == Capture::INFO) capture_ = Capture::NONE;
       return;
     }
-
   }
 
   ShadowLibraryBook* results_;

@@ -32,7 +32,6 @@ class ShadowLibraryClient final {
   static bool resolveDownloadUrl(const ShadowLibraryBook& book, std::string& downloadUrl);
 
  private:
-  static bool fetchSearchPage(const std::string& url, ShadowLibraryBook* results, size_t capacity,
-                              size_t& resultCount);
+  static bool fetchSearchPage(const std::string& url, ShadowLibraryBook* results, size_t capacity, size_t& resultCount);
   static bool fetchMirrorPage(const std::string& url, std::string& directUrl);
 };
