@@ -1,9 +1,10 @@
-name: Compile Release Candidate
+name: Compile CrossCover Release Candidate
 
 on:
   workflow_dispatch:
 
 permissions:
+  contents: write
   contents: write
 
 jobs:
@@ -77,7 +78,7 @@ jobs:
           escaped_version=$(printf '%s\n' "$VERSION" | sed 's/[&|]/\\&/g')
           sed -i "s|^crossink_version = .*|crossink_version = ${escaped_version}|" platformio.ini
 
-      - name: Build CrossPoint
+      - name: Build CrossCover
         shell: bash
         env:
           CROSSPOINT_RC_ARTIFACTS: "1"
@@ -93,7 +94,7 @@ jobs:
       - name: Create GitHub RC Prerelease
         uses: softprops/action-gh-release@v3
         with:
-          token: ${{ secrets.RELEASE_PAT }}
+          token: ${{ github.token }}
           tag_name: ${{ env.RC_TAG }}
           target_commitish: ${{ github.sha }}
           name: RC ${{ env.RC_BRANCH_SAFE }} ${{ env.RC_HASH_SHORT }}

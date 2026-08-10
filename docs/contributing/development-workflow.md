@@ -14,8 +14,14 @@ This page defines the expected local workflow before opening a pull request.
 - Clone your fork locally and add the upstream repository if needed
 - Enable repo hooks once per clone: `git config core.hooksPath .githooks && chmod +x .githooks/pre-commit`
 
-- Branch from the target base branch for the work, usually `main` for release-bound changes or `development` for active development
-- Keep each PR focused on one fix or feature area
+- Branch from `main` for normal work. Use a temporary
+  `integrate/crossink-vX.Y.Z` branch only when importing a specific CrossInk
+  release. CrossCover does not maintain a permanent `development` branch.
+- Keep each PR focused on one fix, feature, upstream integration, or
+  repository-maintenance area.
+
+For the complete upstream and release policy, see
+[CrossCover Upstream and Release Workflow](crosscover-upstream.md).
 
 ## 2) Implement with scope in mind
 
