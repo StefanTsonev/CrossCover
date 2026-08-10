@@ -290,7 +290,8 @@ void HardcoverLibraryActivity::render(RenderLock&&) {
             return std::string(label);
           }
           return books[index - (hasPending ? 1 : 0)].title;
-        }, nullptr, nullptr,
+        },
+        nullptr, nullptr,
         [this, hasPending](int index) {
           if (hasPending && index == 0) return std::string{};
           const auto& book = books[index - (hasPending ? 1 : 0)];
@@ -309,8 +310,8 @@ void HardcoverLibraryActivity::render(RenderLock&&) {
 
   const bool syncSelected = !pending.empty() && selectedIndex == 0;
   const StrId actionLabel = syncSelected ? StrId::STR_NEARBY_STATS_SYNC_BUTTON : StrId::STR_RELOAD;
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), I18n::getInstance().get(actionLabel), tr(STR_DIR_UP),
-                                             tr(STR_DIR_DOWN));
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), I18n::getInstance().get(actionLabel), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
