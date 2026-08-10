@@ -183,15 +183,16 @@ void ShadowLibraryActivity::checkAndConnectWifi() {
 void ShadowLibraryActivity::launchWifiSelection() {
   state = State::WIFI_SELECTION;
   requestUpdate();
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput), [this](const ActivityResult& result) {
-    if (result.isCancelled) {
-      state = State::ERROR;
-      errorMessage = tr(STR_WIFI_CONN_FAILED);
-      requestUpdate();
-    } else {
-      launchSearch();
-    }
-  });
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) {
+                           if (result.isCancelled) {
+                             state = State::ERROR;
+                             errorMessage = tr(STR_WIFI_CONN_FAILED);
+                             requestUpdate();
+                           } else {
+                             launchSearch();
+                           }
+                         });
 }
 
 void ShadowLibraryActivity::launchSearch() {
