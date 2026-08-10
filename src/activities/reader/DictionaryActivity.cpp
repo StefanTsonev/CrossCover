@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "CrossPointSettings.h"
-#include "Dictionary.h"
 #include "DictionaryRegistry.h"
 #include "StarDictReader.h"
 #include "components/UITheme.h"
@@ -126,11 +125,15 @@ void DictionaryActivity::onEnter() {
     requestUpdate();
     return;
   }
-  const std::string activePath = Dictionary::readDictPath();
-  auto selected = std::find_if(dictionaries.begin(), dictionaries.end(),
-                               [&activePath](const DictionaryEntry& item) { return item.basePath == activePath; });
-  if (selected == dictionaries.end()) selected = dictionaries.begin();
-  StarDictReader reader(selected->basePath);
+  const auto& selected = dictionaries.front();
+  std::string dictionaryBase;
+  if (!DictionaryRegistry::resolveBasePath(selected.name.c_str(), dictionaryBase)) {
+    status = StrId::STR_DICTIONARY_MISSING;
+    lookupComplete = true;
+    requestUpdate();
+    return;
+  }
+  StarDictReader reader(dictionaryBase);
   switch (reader.lookup(selectedWord, definition)) {
     case StarDictReader::Result::Found:
       break;
