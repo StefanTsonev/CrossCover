@@ -148,7 +148,8 @@ void HardcoverSettingsActivity::render(RenderLock&&) {
       Count, selectedIndex,
       [](int index) { return std::string(I18N.get(kMenuItems[index])); }, nullptr, nullptr,
       [](int index) {
-        if (index == ImportKey) return HARDCOVER_STORE.hasApiToken() ? std::string("******") : std::string(tr(STR_NOT_SET));
+        if (index == ImportKey)
+          return HARDCOVER_STORE.hasApiToken() ? std::string("******") : std::string(tr(STR_NOT_SET));
         if (index == Authenticate) return HARDCOVER_STORE.getUsername();
         return std::string("");
       },
