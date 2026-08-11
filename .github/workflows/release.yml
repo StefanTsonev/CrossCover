@@ -1,14 +1,9 @@
-name: Build CrossCover Release
-
+name: Compile Release
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Existing CrossCover tag on main (for example v1.5.0-crosscover.1)"
-        required: true
-        type: string
       version:
-        description: "Version embedded in the firmware artifact names"
+        description: "Compile release builds"
         required: true
         type: string
 
@@ -19,56 +14,104 @@ jobs:
   build-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag }}
+          token: ${{ secrets.RELEASE_PAT }}
           submodules: recursive
           fetch-depth: 0
 
-      - name: Verify tag belongs to main
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
+      - name: Verify release tag is on main
+        if: github.event_name == 'push'
         run: |
-          git fetch origin main --tags
-          TAG_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
+          git fetch origin main:refs/remotes/origin/main
+          TAG_COMMIT="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
           git merge-base --is-ancestor "$TAG_COMMIT" origin/main
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
-      - name: Install PlatformIO
-        run: |
-          python -m pip install --upgrade \
-            https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
 
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', '.gitmodules') }}
+          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
           restore-keys: |
             ${{ runner.os }}-platformio-
 
-      - name: Build release environments
-        env:
-          CROSSPOINT_RELEASE_VERSION: ${{ inputs.version }}
-        run: pio run -e tiny -e xlarge
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
-      - name: Generate checksums
+      - name: Resolve release version
         run: |
-          sha256sum \
-            ".pio/build/tiny/firmware-tiny-v${{ inputs.version }}.bin" \
-            ".pio/build/xlarge/firmware-xlarge-v${{ inputs.version }}.bin" \
-            > "CrossCover-${{ inputs.version }}-SHA256SUMS.txt"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          sed -i "/^\[crossink\]$/,/^\[/s/^version = .*/version = $VERSION/" platformio.ini
 
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+      - name: Build CrossInk
+        env:
+          CROSSINK_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: pio run -j1 -e default -e sticky
+
+      - name: Generate release catalog
+        run: |
+          python3 scripts/generate_release_catalog.py \
+            --version "${{ env.RELEASE_VERSION }}" \
+            --repo "${{ github.repository }}" \
+            --firmware ".pio/build/default/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin" \
+            --firmware ".pio/build/sticky/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin" \
+            --output ".pio/build/catalog"
+
+      - name: Publish catalog to GitHub Pages source
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CROSSINK_SIGNING_SSH_KEY: ${{ secrets.CROSSINK_SIGNING_SSH_KEY }}
+        run: |
+          if [ -z "$CROSSINK_SIGNING_SSH_KEY" ]; then
+            echo "::error::CROSSINK_SIGNING_SSH_KEY is not set"
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$CROSSINK_SIGNING_SSH_KEY" > ~/.ssh/crossink_actions_signing
+          chmod 600 ~/.ssh/crossink_actions_signing
+          ssh-keygen -y -f ~/.ssh/crossink_actions_signing > ~/.ssh/crossink_actions_signing.pub
+
+          git config user.name "uxjulia"
+          git config user.email "julia@uxj.io"
+          git config gpg.format ssh
+          git config user.signingkey "$HOME/.ssh/crossink_actions_signing.pub"
+
+          git fetch origin "$DEFAULT_BRANCH"
+          git worktree add ../crossink-pages "origin/$DEFAULT_BRANCH"
+          cp ".pio/build/catalog" "../crossink-pages/docs/catalog"
+          cd ../crossink-pages
+          if git diff --quiet -- docs/catalog; then
+            echo "docs/catalog is already current"
+            exit 0
+          fi
+          git add docs/catalog
+          git commit -S -m "Update release manifests for v${RELEASE_VERSION}"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.tag }}
-          name: CrossCover ${{ inputs.version }}
-          generate_release_notes: true
+          token: ${{ secrets.RELEASE_PAT }}
+          tag_name: v${{ env.RELEASE_VERSION }}
+          target_commitish: ${{ github.sha }}
+          draft: true
           files: |
-            .pio/build/tiny/firmware-tiny-v${{ inputs.version }}.bin
-            .pio/build/xlarge/firmware-xlarge-v${{ inputs.version }}.bin
-            CrossCover-${{ inputs.version }}-SHA256SUMS.txt
+            .pio/build/default/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin
+            .pio/build/sticky/firmware-sticky-v${{ env.RELEASE_VERSION }}.bin

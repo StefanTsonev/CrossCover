@@ -48,6 +48,10 @@ struct PageResult {
 struct ProgressChangeResult {
   int spineIndex = 0;
   int page = 0;
+  int totalPages = 0;
+  std::string xpath;
+  float percentage = 0.0f;
+  bool hasSavedProgress = false;
 };
 
 struct SyncResult {
@@ -79,6 +83,10 @@ struct FilePathResult {
   std::string path;
 };
 
+struct WordResult {
+  std::string word;
+};
+
 struct ReadingStatsResult {
   bool changed = false;
 };
@@ -101,10 +109,6 @@ struct ClippingResult {
   uint16_t wordCount = 0;
 };
 
-struct DictionaryWordResult {
-  std::string word;
-};
-
 struct ClippingJumpResult {
   uint16_t spineIndex = 0;
   uint16_t page = 0;
@@ -118,8 +122,7 @@ struct ClippingJumpResult {
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
                                    IntervalResult, OptionSelectionResult, PageResult, ProgressChangeResult, SyncResult,
                                    NetworkModeResult, FootnoteResult, BookmarkResult, FileBrowserActionResult,
-                                   FilePathResult, ReadingStatsResult, ClippingResult, DictionaryWordResult,
-                                   ClippingJumpResult>;
+                                   FilePathResult, WordResult, ReadingStatsResult, ClippingResult, ClippingJumpResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

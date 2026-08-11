@@ -1,10 +1,9 @@
 #pragma once
 
-#include "network/ShadowLibraryClient.h"
-
 #include <memory>
 
 #include "activities/Activity.h"
+#include "network/ShadowLibraryClient.h"
 #include "util/ButtonNavigator.h"
 
 /** Search and download EPUBs from the Anna’s Archive HTML catalog. */

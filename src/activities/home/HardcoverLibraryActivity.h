@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "HardcoverClient.h"
 #include "HardcoverBookLinkStore.h"
+#include "HardcoverClient.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 

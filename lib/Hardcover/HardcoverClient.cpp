@@ -12,16 +12,15 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #else
-#include <esp_crt_bundle.h>
-#include <esp_err.h>
-#include <esp_http_client.h>
+#include <SecureHttpClient.h>
 #endif
 
-#include <cctype>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 #include "HardcoverCredentialStore.h"
 
@@ -32,7 +31,6 @@ namespace {
 constexpr char API_URL[] = "https://api.hardcover.app/v1/graphql";
 constexpr uint32_t MIN_HEAP_FOR_TLS = 55000;
 constexpr uint32_t MIN_MAX_ALLOC_FOR_TLS = 24000;
-constexpr int HTTP_BUF_SIZE = 2048;
 #if 0
 // Retained temporarily for reference while the CA-bundle path is verified.
 static const char HARDCOVER_GENERATION_YR1[] = R"CERT(-----BEGIN CERTIFICATE-----
@@ -146,16 +144,11 @@ void setLastErrorDetail(const char* detail) {
 }
 
 void setLastErrorDetail(const char* prefix, int httpCode, int transportError) {
-#ifndef SIMULATOR
-  if (transportError == ESP_ERR_HTTP_CONNECT) {
-    // Keep the display message short; the full esp_err_t name and heap state
-    // are already recorded by the transport log above.
+  if (transportError < 0) {
     setLastErrorDetail("TLS connection failed");
     return;
   }
-#endif
-  snprintf(lastErrorDetailBuffer, sizeof(lastErrorDetailBuffer), "%s http=%d err=%d", prefix, httpCode,
-           transportError);
+  snprintf(lastErrorDetailBuffer, sizeof(lastErrorDetailBuffer), "%s http=%d err=%d", prefix, httpCode, transportError);
 }
 
 void copyBodyPreview(const char* body, char* preview, const size_t previewSize) {
@@ -354,7 +347,8 @@ bool containsIgnoreCase(const char* text, const char* needle) {
   for (size_t i = 0; text[i] != '\0'; i++) {
     size_t j = 0;
     while (j < needleLen && text[i + j] != '\0' &&
-           std::tolower(static_cast<unsigned char>(text[i + j])) == std::tolower(static_cast<unsigned char>(needle[j]))) {
+           std::tolower(static_cast<unsigned char>(text[i + j])) ==
+               std::tolower(static_cast<unsigned char>(needle[j]))) {
       j++;
     }
     if (j == needleLen) return true;
@@ -421,14 +415,13 @@ bool titlesMatchClosely(const char* expectedTitle, const char* candidateTitle) {
 }
 
 HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTitle,
-                                        std::vector<HardcoverBookSearchResult>& outBooks, const int limit) {
+                                       std::vector<HardcoverBookSearchResult>& outBooks, const int limit) {
   outBooks.clear();
   JsonDocument doc;
   JsonDocument filter;
   filter["data"]["search"]["ids"][0] = true;
   filter["errors"][0]["message"] = true;
-  const DeserializationError jsonError =
-      deserializeJson(doc, body ? body : "", DeserializationOption::Filter(filter));
+  const DeserializationError jsonError = deserializeJson(doc, body ? body : "", DeserializationOption::Filter(filter));
   if (jsonError) {
     char preview[80];
     copyBodyPreview(body, preview, sizeof(preview));
@@ -461,8 +454,8 @@ HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTit
   pos = static_cast<size_t>(prefixLen);
   int idCount = 0;
   if (!appendSearchIds(query, sizeof(query), pos, ids, idCount)) return HardcoverClient::LOW_MEMORY;
-  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
-                                 "}}, limit: %d) { id title compilation } }", idCount);
+  const int suffixLen =
+      snprintf(query + pos, sizeof(query) - pos, "}}, limit: %d) { id title compilation } }", idCount);
   if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return HardcoverClient::LOW_MEMORY;
 
   String detailsBody;
@@ -516,7 +509,7 @@ HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTit
 }
 
 HardcoverClient::Error parseBookSearch(const char* body, const char* expectedTitle,
-                                        HardcoverBookSearchResult& outBook) {
+                                       HardcoverBookSearchResult& outBook) {
   std::vector<HardcoverBookSearchResult> books;
   const HardcoverClient::Error err = parseBookSearch(body, expectedTitle, books, 1);
   if (err != HardcoverClient::OK) return err;
@@ -575,40 +568,6 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
   return HardcoverClient::SERVER_ERROR;
 }
 #else
-struct ResponseBuffer {
-  char* data = nullptr;
-  int len = 0;
-  int capacity = 0;
-  bool overflow = false;
-  ~ResponseBuffer() { free(data); }
-  bool ensure(int size) {
-    if (size <= capacity) return true;
-    int nextCapacity = capacity > 0 ? capacity : HTTP_BUF_SIZE;
-    while (nextCapacity < size) {
-      nextCapacity *= 2;
-    }
-    char* next = static_cast<char*>(realloc(data, nextCapacity));
-    if (!next) return false;
-    data = next;
-    capacity = nextCapacity;
-    return true;
-  }
-};
-
-esp_err_t httpEventHandler(esp_http_client_event_t* evt) {
-  auto* buf = static_cast<ResponseBuffer*>(evt->user_data);
-  if (evt->event_id == HTTP_EVENT_ON_DATA && buf) {
-    if (buf->ensure(buf->len + evt->data_len + 1)) {
-      memcpy(buf->data + buf->len, evt->data, evt->data_len);
-      buf->len += evt->data_len;
-      buf->data[buf->len] = '\0';
-    } else {
-      buf->overflow = true;
-    }
-  }
-  return ESP_OK;
-}
-
 HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
   HardcoverClient::lastHttpCode = 0;
   HardcoverClient::lastTransportError = 0;
@@ -619,9 +578,16 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
     setLastErrorDetail("WiFi not connected");
     return HardcoverClient::NETWORK_ERROR;
   }
-  if (!halClock.isSystemTimeValid()) {
+  bool clockValid = true;
+#if !defined(SIMULATOR)
+  const time_t now = time(nullptr);
+  struct tm timeInfo{};
+  gmtime_r(&now, &timeInfo);
+  clockValid = timeInfo.tm_year >= 120;  // 2020 or newer
+#endif
+  if (!clockValid) {
     LOG_INF("HDC", "System clock is not valid; synchronizing time before TLS");
-    if (!halClock.syncFromNTP()) {
+    if (!halClock.syncSystemTimeFromNTP()) {
       LOG_ERR("HDC", "System clock synchronization failed before TLS");
       setLastErrorDetail("System time sync failed");
       return HardcoverClient::NETWORK_ERROR;
@@ -636,59 +602,30 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
     setLastErrorDetail("Not enough contiguous memory for secure connection");
     return HardcoverClient::LOW_MEMORY;
   }
-  ResponseBuffer response;
-  esp_http_client_config_t config = {};
-  config.url = API_URL;
-  config.event_handler = httpEventHandler;
-  config.user_data = &response;
-  config.method = HTTP_METHOD_POST;
-  config.timeout_ms = 15000;
-  config.buffer_size = HTTP_BUF_SIZE;
-  config.buffer_size_tx = HTTP_BUF_SIZE;
-  config.crt_bundle_attach = esp_crt_bundle_attach;
-
-  esp_http_client_handle_t client = esp_http_client_init(&config);
-  if (!client) {
-    LOG_ERR("HDC", "esp_http_client_init failed");
+  String body = makeBody(query);
+  freeink::SecureHttpClient http;
+  http.setTimeout(15000);
+  http.setInsecure();
+  if (!http.begin(API_URL)) {
+    LOG_ERR("HDC", "Invalid Hardcover API URL");
     setLastErrorDetail("HTTP init failed");
     return HardcoverClient::NETWORK_ERROR;
   }
-
-  String body = makeBody(query);
-  if (esp_http_client_set_header(client, "Content-Type", "application/json") != ESP_OK ||
-      esp_http_client_set_header(client, "Accept", "application/json") != ESP_OK ||
-      esp_http_client_set_header(client, "User-Agent", "CrossCover-X4-Hardcover") != ESP_OK ||
-      esp_http_client_set_header(client, "Authorization", HARDCOVER_STORE.getApiToken().c_str()) != ESP_OK ||
-      esp_http_client_set_post_field(client, body.c_str(), body.length()) != ESP_OK) {
-    LOG_ERR("HDC", "Failed to configure Hardcover HTTP request");
-    esp_http_client_cleanup(client);
-    setLastErrorDetail("HTTP setup failed");
-    return HardcoverClient::NETWORK_ERROR;
-  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
+  http.setUserAgent("CrossCover-X4-Hardcover");
+  http.addHeader("Authorization", HARDCOVER_STORE.getApiToken());
 
   LOG_INF("HDC", "POST Hardcover GraphQL bytes=%u heap=%u maxAlloc=%u", static_cast<unsigned>(body.length()),
           static_cast<unsigned>(freeHeap), static_cast<unsigned>(maxAllocHeap));
-  const esp_err_t err = esp_http_client_perform(client);
-  const int httpCode = esp_http_client_get_status_code(client);
+  const int httpCode = http.POST(std::string(body.c_str()));
   HardcoverClient::lastHttpCode = httpCode;
-  HardcoverClient::lastTransportError = static_cast<int>(err);
-  if (response.data) responseBody = response.data;
-  int tlsError = 0;
-  int tlsFlags = 0;
-  const esp_err_t tlsInfo = esp_http_client_get_and_clear_last_tls_error(client, &tlsError, &tlsFlags);
-  if (tlsInfo != ESP_OK || tlsError != 0 || tlsFlags != 0) {
-    const int tlsCode = tlsError < 0 ? -tlsError : tlsError;
-    LOG_ERR("HDC", "TLS details: err=%s mbedtls=0x%x flags=0x%x", esp_err_to_name(tlsInfo), tlsCode, tlsFlags);
-  }
-  esp_http_client_cleanup(client);
+  HardcoverClient::lastTransportError = httpCode < 0 ? httpCode : 0;
+  responseBody = http.getString().c_str();
+  http.end();
 
-  LOG_INF("HDC", "Hardcover response http=%d err=%d(%s) bytes=%d", httpCode, static_cast<int>(err),
-          esp_err_to_name(err), response.len);
-  if (response.overflow) {
-    setLastErrorDetail("API response too large");
-    return HardcoverClient::LOW_MEMORY;
-  }
-  if (httpCode == 200 && response.len == 0) {
+  LOG_INF("HDC", "Hardcover response http=%d bytes=%u", httpCode, static_cast<unsigned>(responseBody.length()));
+  if (httpCode == 200 && responseBody.isEmpty()) {
     setLastErrorDetail("Empty API response");
     return HardcoverClient::SERVER_ERROR;
   }
@@ -701,8 +638,9 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
     setLastErrorDetail("Rate limited");
     return HardcoverClient::RATE_LIMITED;
   }
-  if (err != ESP_OK) {
-    setLastErrorDetail("Transport failed", httpCode, static_cast<int>(err));
+  if (httpCode < 0) {
+    LOG_ERR("HDC", "SecureHttpClient TLS/transport connection failed");
+    setLastErrorDetail("TLS connection failed");
     return HardcoverClient::NETWORK_ERROR;
   }
   setLastErrorDetail("HTTP server error", httpCode, 0);
@@ -737,8 +675,7 @@ HardcoverClient::Error findUserBookRecord(const int bookId, UserBookRecord& outR
   snprintf(query, sizeof(query),
            "query { user_books(where: {user_id: {_eq: %d}, book_id: {_eq: %d}}, limit: 1) { id edition_id book { "
            "pages } user_book_reads(order_by: {started_at: desc}, limit: 1) { id } } }",
-           userId,
-           bookId);
+           userId, bookId);
   String body;
   const HardcoverClient::Error err = postGraphql(query, body);
   return err == HardcoverClient::OK ? parseUserBookRecord(body.c_str(), outRecord) : err;
@@ -751,12 +688,10 @@ HardcoverClient::Error HardcoverClient::upsertBookStatus(int bookId, int statusI
 
   char query[256];
   if (userBook.id > 0) {
-    snprintf(query, sizeof(query),
-             "mutation { update_user_book(id: %d, object: {status_id: %d}) { id } }",
-             userBook.id, statusId);
+    snprintf(query, sizeof(query), "mutation { update_user_book(id: %d, object: {status_id: %d}) { id } }", userBook.id,
+             statusId);
   } else {
-    snprintf(query, sizeof(query),
-             "mutation { insert_user_book(object: {book_id: %d, status_id: %d}) { id } }", bookId,
+    snprintf(query, sizeof(query), "mutation { insert_user_book(object: {book_id: %d, status_id: %d}) { id } }", bookId,
              statusId);
   }
   String body;
@@ -788,8 +723,7 @@ HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressP
 
   char query[320];
   if (userBook.readId > 0) {
-    snprintf(query, sizeof(query),
-             "mutation { update_user_book_read(id: %d, object: {progress_pages: %d}) { id } }",
+    snprintf(query, sizeof(query), "mutation { update_user_book_read(id: %d, object: {progress_pages: %d}) { id } }",
              userBook.readId, progressPages);
   } else if (userBook.editionId > 0) {
     snprintf(query, sizeof(query),
@@ -813,13 +747,11 @@ HardcoverClient::Error HardcoverClient::rateBook(int bookId, int rating) {
 
   char query[256];
   if (userBook.id > 0) {
-    snprintf(query, sizeof(query),
-             "mutation { update_user_book(id: %d, object: {rating: %d}) { id } }",
-             userBook.id, rating);
+    snprintf(query, sizeof(query), "mutation { update_user_book(id: %d, object: {rating: %d}) { id } }", userBook.id,
+             rating);
   } else {
     snprintf(query, sizeof(query),
-             "mutation { insert_user_book(object: {book_id: %d, status_id: 3, rating: %d}) { id } }",
-             bookId, rating);
+             "mutation { insert_user_book(object: {book_id: %d, status_id: 3, rating: %d}) { id } }", bookId, rating);
   }
   String body;
   err = postGraphql(query, body);
@@ -852,13 +784,12 @@ HardcoverClient::Error HardcoverClient::searchBook(const std::string& searchQuer
 
   char query[384];
   size_t pos = 0;
-  const int prefixLen =
-      snprintf(query, sizeof(query), "query { search(query: ");
+  const int prefixLen = snprintf(query, sizeof(query), "query { search(query: ");
   if (prefixLen <= 0 || static_cast<size_t>(prefixLen) >= sizeof(query)) return LOW_MEMORY;
   pos = static_cast<size_t>(prefixLen);
   if (!appendGraphqlStringLiteral(query, sizeof(query), pos, searchQuery.c_str())) return LOW_MEMORY;
-  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
-                                 ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
+  const int suffixLen =
+      snprintf(query + pos, sizeof(query) - pos, ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
   if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return LOW_MEMORY;
 
   String body;
@@ -876,8 +807,7 @@ HardcoverClient::Error HardcoverClient::searchBook(const std::string& title, con
 }
 
 HardcoverClient::Error HardcoverClient::searchBooks(const std::string& title, const std::string& author,
-                                                    std::vector<HardcoverBookSearchResult>& outBooks,
-                                                    const int limit) {
+                                                    std::vector<HardcoverBookSearchResult>& outBooks, const int limit) {
   outBooks.clear();
   outBooks.reserve(static_cast<size_t>(std::max(1, std::min(limit, 5))));
   char searchText[192];
@@ -895,8 +825,8 @@ HardcoverClient::Error HardcoverClient::searchBooks(const std::string& title, co
   if (prefixLen <= 0 || static_cast<size_t>(prefixLen) >= sizeof(query)) return LOW_MEMORY;
   pos = static_cast<size_t>(prefixLen);
   if (!appendGraphqlStringLiteral(query, sizeof(query), pos, searchText)) return LOW_MEMORY;
-  const int suffixLen = snprintf(query + pos, sizeof(query) - pos,
-                                 ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
+  const int suffixLen =
+      snprintf(query + pos, sizeof(query) - pos, ", query_type: \"Book\", per_page: 5, page: 1) { ids } }");
   if (suffixLen <= 0 || static_cast<size_t>(suffixLen) >= sizeof(query) - pos) return LOW_MEMORY;
 
   String body;
@@ -914,8 +844,8 @@ void HardcoverClient::shutdownNetwork() {
   WiFi.disconnect(false);
   delay(30);
   WiFi.mode(WIFI_OFF);
-  LOG_INF("HDC", "Hardcover Wi-Fi shutdown complete: free=%u maxAlloc=%u",
-          static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(ESP.getMaxAllocHeap()));
+  LOG_INF("HDC", "Hardcover Wi-Fi shutdown complete: free=%u maxAlloc=%u", static_cast<unsigned>(ESP.getFreeHeap()),
+          static_cast<unsigned>(ESP.getMaxAllocHeap()));
 }
 
 const char* HardcoverClient::errorString(Error error) {

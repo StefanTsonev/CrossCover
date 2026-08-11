@@ -1,7 +1,7 @@
 #include "HardcoverBookActivity.h"
 
-#include <GfxRenderer.h>
 #include <FontCacheManager.h>
+#include <GfxRenderer.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -19,7 +19,7 @@
 
 namespace {
 const StrId kMenuItems[HardcoverBookActivity::Count] = {
-    StrId::STR_HARDCOVER_LINK_BOOK, StrId::STR_HARDCOVER_AUTO_LINK, StrId::STR_HARDCOVER_MARK_READING,
+    StrId::STR_HARDCOVER_LINK_BOOK,       StrId::STR_HARDCOVER_AUTO_LINK, StrId::STR_HARDCOVER_MARK_READING,
     StrId::STR_HARDCOVER_UPDATE_PROGRESS, StrId::STR_HARDCOVER_MARK_READ, StrId::STR_HARDCOVER_RATE,
 };
 
@@ -40,7 +40,7 @@ bool isPlainNumber(const std::string& text) {
   return std::all_of(text.begin(), text.end(), [](const char c) { return c >= '0' && c <= '9'; });
 }
 
-}
+}  // namespace
 
 void HardcoverBookActivity::onEnter() {
   Activity::onEnter();
@@ -189,10 +189,10 @@ void HardcoverBookActivity::render(RenderLock&&) {
   char subheader[96];
   snprintf(subheader, sizeof(subheader), "%s: %s", bookId > 0 ? tr(STR_HARDCOVER_LINKED) : tr(STR_HARDCOVER_NOT_LINKED),
            bookId > 0 ? std::to_string(bookId).c_str() : "");
-  GUI.drawSubHeader(renderer,
-                    Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width,
-                         metrics.tabBarHeight},
-                    subheader);
+  GUI.drawSubHeader(
+      renderer,
+      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
+      subheader);
 
   const int contentTop =
       screen.y + metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;

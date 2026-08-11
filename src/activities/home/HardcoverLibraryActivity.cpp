@@ -1,13 +1,13 @@
 #include "HardcoverLibraryActivity.h"
 
-#include <GfxRenderer.h>
 #include <FontCacheManager.h>
+#include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
 
-#include <cstdio>
 #include <cctype>
+#include <cstdio>
 
 #include "HardcoverCredentialStore.h"
 #include "MappedInputManager.h"
@@ -50,9 +50,9 @@ void releaseHardcoverFontCaches(GfxRenderer& renderer, const char* reason) {
   const uint32_t freeBefore = ESP.getFreeHeap();
   const uint32_t maxBefore = ESP.getMaxAllocHeap();
   fontCache->clearCache();
-  LOG_INF("HDC", "%s font cache release: free=%u->%u maxAlloc=%u->%u", reason,
-          static_cast<unsigned>(freeBefore), static_cast<unsigned>(ESP.getFreeHeap()),
-          static_cast<unsigned>(maxBefore), static_cast<unsigned>(ESP.getMaxAllocHeap()));
+  LOG_INF("HDC", "%s font cache release: free=%u->%u maxAlloc=%u->%u", reason, static_cast<unsigned>(freeBefore),
+          static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(maxBefore),
+          static_cast<unsigned>(ESP.getMaxAllocHeap()));
 }
 
 bool isNumericLookup(const std::string& value) {
@@ -259,8 +259,7 @@ void HardcoverLibraryActivity::render(RenderLock&&) {
   if (selectingLookup) {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(lookupResults.size()),
-        selectedLookupIndex,
-        [this](int index) { return lookupResults[index].title; }, nullptr, nullptr,
+        selectedLookupIndex, [this](int index) { return lookupResults[index].title; }, nullptr, nullptr,
         [this](int index) { return std::to_string(lookupResults[index].bookId); }, true);
   } else if (!loaded) {
     if (lastError == HardcoverClient::NO_TOKEN) {
@@ -290,7 +289,8 @@ void HardcoverLibraryActivity::render(RenderLock&&) {
             return std::string(label);
           }
           return books[index - (hasPending ? 1 : 0)].title;
-        }, nullptr, nullptr,
+        },
+        nullptr, nullptr,
         [this, hasPending](int index) {
           if (hasPending && index == 0) return std::string{};
           const auto& book = books[index - (hasPending ? 1 : 0)];
@@ -309,8 +309,8 @@ void HardcoverLibraryActivity::render(RenderLock&&) {
 
   const bool syncSelected = !pending.empty() && selectedIndex == 0;
   const StrId actionLabel = syncSelected ? StrId::STR_NEARBY_STATS_SYNC_BUTTON : StrId::STR_RELOAD;
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), I18n::getInstance().get(actionLabel), tr(STR_DIR_UP),
-                                             tr(STR_DIR_DOWN));
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), I18n::getInstance().get(actionLabel), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

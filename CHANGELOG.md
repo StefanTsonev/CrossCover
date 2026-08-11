@@ -1,3 +1,23 @@
+## [v1.5.0-crosscover.1] - 2026-08-11
+
+### Added
+
+- CrossInk v1.5.0 reader, dictionary, font, networking, nearby-transfer, and UI improvements.
+- CrossCover Hardcover integration and Anna’s Archive search/download support remain available in the release build.
+
+### Changed
+
+- Updated the firmware base to the CrossInk v1.5.0 architecture and X3/X4 functionality.
+- Anna’s Archive search now uses bounded response storage and the WOLFSSL transport to reduce peak heap use on ESP32-C3.
+- CrossCover branding, release metadata, and inherited dictionary documentation now follow the v1.5 upstream layout.
+
+### Fixed
+
+- Opening Settings no longer aborts when the dictionary registry is populated.
+- Anna’s Archive search now rejects oversized responses instead of allowing an unbounded allocation to abort the device.
+- Anna’s Archive result metadata now separates author, size, and download count clearly.
+- Removed obsolete pre-v1.5 dictionary implementation files that could conflict with the CrossInk v1.5 dictionary pipeline.
+
 ## [v1.4.0-crosscover.3] - 2026-07-23
 
 ### Added
@@ -8,6 +28,14 @@
 ### Changed
 
 - CrossCover Home menu grouping for Hardcover and Anna’s Archive.
+
+### Fixed
+
+- Hardcover TLS requests now synchronize the system clock without requiring an available RTC.
+- Restored the Hardcover action menu inside the EPUB reader.
+- Removed the misleading selected marker from the CrossCover provider menu.
+- Restored CrossCover as the default device name on X3/X4 hardware.
+- Restored Hardcover setup and Anna’s Archive download-folder entries in System settings.
 
 ## [v1.4.0-crosscover.2] - 2026-07-16
 
