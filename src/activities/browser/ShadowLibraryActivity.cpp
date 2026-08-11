@@ -166,7 +166,10 @@ void ShadowLibraryActivity::render(RenderLock&&) {
           details += results[index].downloads + " ";
           details += tr(STR_SHADOW_LIBRARY_DOWNLOADS);
         }
-        if (!details.empty()) metadata += "\n" + details;
+        if (!details.empty()) {
+          if (!metadata.empty()) metadata += " · ";
+          metadata += details;
+        }
         return metadata;
       },
       nullptr, nullptr, false);
@@ -265,6 +268,7 @@ void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
   HttpDownloader::DownloadOptions options;
   options.shouldCancel = pollCancel;
   options.bufferSize = DOWNLOAD_BUFFER_SIZE;
+  options.transport = HttpDownloader::Transport::WOLFSSL;
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,
       [this](size_t downloaded, size_t total) {

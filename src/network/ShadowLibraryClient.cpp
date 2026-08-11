@@ -6,12 +6,17 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 
 #include "HttpDownloader.h"
+#include "Memory.h"
 
 namespace {
 constexpr size_t MAX_TAG_BYTES = 512;
 constexpr size_t MAX_FIELD_BYTES = 192;
+constexpr size_t MAX_SEARCH_RESPONSE_BYTES = 16 * 1024;
+constexpr uint32_t MIN_SEARCH_FREE_HEAP = 32 * 1024;
+constexpr uint32_t MIN_SEARCH_MAX_ALLOC_HEAP = 16 * 1024;
 
 enum class Capture { NONE, TITLE, AUTHOR, PUBLISHER, INFO };
 
@@ -327,13 +332,47 @@ bool ShadowLibraryClient::search(const std::string& query, ShadowLibraryBook* re
   if (query.empty() || results == nullptr || capacity == 0) return false;
   const std::string url = std::string(BASE_URL) + "/search?q=" + encodeQuery(query);
   LOG_DBG("SHADOW", "Searching: %s", url.c_str());
-  std::string body;
-  if (!HttpDownloader::fetchUrl(url, body)) {
+
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  const uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
+  if (freeHeap < MIN_SEARCH_FREE_HEAP || maxAllocHeap < MIN_SEARCH_MAX_ALLOC_HEAP) {
+    LOG_ERR("SHADOW", "Insufficient heap for search: free=%u maxAlloc=%u", static_cast<unsigned>(freeHeap),
+            static_cast<unsigned>(maxAllocHeap));
+    return false;
+  }
+
+  auto body = makeUniqueNoThrow<char[]>(MAX_SEARCH_RESPONSE_BYTES + 1);
+  if (!body) {
+    LOG_ERR("SHADOW", "Failed to allocate %zu byte search response buffer", MAX_SEARCH_RESPONSE_BYTES + 1);
+    return false;
+  }
+
+  size_t bodySize = 0;
+  bool responseTooLarge = false;
+  HttpDownloader::DownloadOptions options;
+  options.bufferSize = 2048;
+  options.transport = HttpDownloader::Transport::WOLFSSL;
+  const bool fetched = HttpDownloader::streamUrl(
+      url, [&body, &bodySize, &responseTooLarge](const uint8_t* data, const size_t length) {
+    if (length > MAX_SEARCH_RESPONSE_BYTES - bodySize) {
+      responseTooLarge = true;
+      return false;
+    }
+    std::memcpy(body.get() + bodySize, data, length);
+    bodySize += length;
+    body[bodySize] = '\0';
+    return true;
+  },
+      nullptr, "", "", options) == HttpDownloader::OK;
+  if (!fetched) {
+    if (responseTooLarge) {
+      LOG_ERR("SHADOW", "Search response exceeds %zu byte limit", MAX_SEARCH_RESPONSE_BYTES);
+    }
     LOG_ERR("SHADOW", "Relay search request failed");
     return false;
   }
   DynamicJsonDocument doc(8192);
-  const DeserializationError error = deserializeJson(doc, body.c_str());
+  const DeserializationError error = deserializeJson(doc, body.get());
   if (error) {
     LOG_ERR("SHADOW", "Relay JSON parse failed: %s", error.c_str());
     return false;
