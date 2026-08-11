@@ -2,28 +2,27 @@
 
 CrossCover is a personal firmware fork based on [CrossInk](https://github.com/uxjulia/CrossInk) for the Xteink X4.
 
-CrossCover adds Hardcover integration, Anna's Archive search and download support,
-and offline dictionary functionality while retaining the CrossInk reader foundation.
+CrossCover adds Hardcover integration and Anna's Archive search and download support
+while retaining the CrossInk reader foundation.
 
-Current release: `1.4.0-crosscover.3`
-Based on CrossInk: `1.4.0`
+Current release: `1.5.0-crosscover.1`
+Based on CrossInk: `1.5.0`
 
 ## Screenshots
 
 <p align="center">
   <img src="boot.jpg" alt="CrossCover home screen" width="32%">
-  <img src="dictionary.jpg" alt="CrossCover dictionary lookup" width="32%">
   <img src="library.jpg" alt="CrossCover Hardcover library" width="32%">
+  <img src="annas.jpg" alt="CrossCover Anna's Archive search" width="32%">
 </p>
 
 ## ⚠️ Important hardware warning
 
-CrossCover is intended for the Xteink X4 only.
+CrossCover is intended for the Xteink X3 and X4.
 
 Do not flash CrossCover on:
 
-- An Xteink X3
-- Any device other than an Xteink X4
+- Any device other than an Xteink X3 or X4
 - A USB-locked Xteink device
 
 ## CrossCover additions
@@ -53,39 +52,6 @@ Hardcover actions are user-triggered. CrossCover does not run a background sync 
 - Use a lightweight relay so the device receives only compact search results
 
 Use the feature only for books you are legally allowed to access or download.
-
-### Offline dictionary lookup
-
-- Select a dictionary from `Settings → Reader → Dictionary`
-- Automatically discover dictionaries on the SD card
-- Select a word directly inside an EPUB
-- Perform case-insensitive lookups
-- Ignore surrounding punctuation
-- Handle common word forms such as `dogs → dog` and `running → run`
-- Create a `.qidx` sidecar index for faster repeated searches
-- Clean and format dictionary definitions before displaying them
-
-CrossCover does not download dictionary files.
-
-Place each dictionary in its own folder:
-
-```text
-/.crosspoint/dictionaries/<dictionary-name>/<dictionary>.ifo
-/.crosspoint/dictionaries/<dictionary-name>/<dictionary>.idx
-/.crosspoint/dictionaries/<dictionary-name>/<dictionary>.dict
-```
-
-The `.dict` file must be decompressed before copying it to the device. `.dict.dz` files are not decompressed automatically.
-
-After copying a dictionary:
-
-1. Open `Settings → Reader → Dictionary`.
-2. Select the dictionary.
-3. Open an EPUB.
-4. Open the reader menu and choose `Dictionary`.
-5. Move to a word and press `Look up`.
-
-The first lookup creates a small `.qidx` file next to the `.idx` file. This file only improves search speed and can be deleted safely.
 
 ## Hardcover setup
 
@@ -132,6 +98,7 @@ The following functionality comes from the [CrossInk](https://github.com/uxjulia
 - Reading statistics
 - Custom fonts
 - Reader layout and typography settings
+- Offline dictionary lookup and dictionary management
 - Auto page turn
 - WiFi and file-transfer functionality
 - Themes
@@ -142,11 +109,11 @@ For the complete upstream feature list and documentation, see the [CrossInk repo
 
 ## Flashing
 
-Only flash CrossCover on a supported, non-USB-locked Xteink X4.
+Only flash CrossCover on a supported, non-USB-locked Xteink X3 or X4.
 
 Before flashing, verify:
 
-- The device is definitely an Xteink X4.
+- The device is definitely an Xteink X3 or X4.
 - The device is not USB-locked.
 - The firmware file matches the intended build.
 - Important SD-card files are backed up.
@@ -158,29 +125,25 @@ CrossCover follows the upstream CrossInk version and adds a fork-specific suffix
 Example:
 
 ```text
-1.4.0-crosscover.3
+1.5.0-crosscover.1
 ```
 
-This means CrossCover release `3` based on CrossInk `1.4.0`.
+This means CrossCover release `1` based on CrossInk `1.5.0`.
 
-When CrossInk releases `1.4.1`, a corresponding CrossCover release may be named:
+When CrossInk releases `1.5.1`, a corresponding CrossCover release may be named:
 
 ```text
-1.4.1-crosscover.1
+1.5.1-crosscover.1
 ```
 
 CrossCover is an independent personal fork and is not an official CrossInk release.
 
 ## Known limitations
 
-- Xteink X4 only
+- Xteink X3 and X4 only
 - USB-locked devices must not be flashed with CrossCover
-- Dictionary files must be supplied by the user
-- `.dict.dz` files must currently be decompressed manually
-- Only the selected dictionary is searched
 - Automatic Hardcover matching can select an incorrect book
 - Hardcover progress updates are queued, but separate Hardcover reading sessions are not recorded
-- The first lookup may take longer while the `.qidx` index is created
 - IPA symbols may use readable approximations when the required glyph is not available in the firmware font
 - Search availability depends on the relay and upstream mirrors
 - The current search flow is limited to EPUB results

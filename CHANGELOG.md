@@ -1,4 +1,4 @@
-## [v1.5.0] - 2026-08-11
+## [v1.5.0-crosscover.1] - 2026-08-11
 
 ### Added
 
@@ -7,7 +7,16 @@
 
 ### Changed
 
-- Updated the firmware base to the CrossInk v1.5.0 architecture and X4 functionality.
+- Updated the firmware base to the CrossInk v1.5.0 architecture and X3/X4 functionality.
+- Anna’s Archive search now uses bounded response storage and the WOLFSSL transport to reduce peak heap use on ESP32-C3.
+- CrossCover branding, release metadata, and inherited dictionary documentation now follow the v1.5 upstream layout.
+
+### Fixed
+
+- Opening Settings no longer aborts when the dictionary registry is populated.
+- Anna’s Archive search now rejects oversized responses instead of allowing an unbounded allocation to abort the device.
+- Anna’s Archive result metadata now separates author, size, and download count clearly.
+- Removed obsolete pre-v1.5 dictionary implementation files that could conflict with the CrossInk v1.5 dictionary pipeline.
 
 ## [v1.4.0-crosscover.3] - 2026-07-23
 

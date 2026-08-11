@@ -10,6 +10,10 @@ This document is the source of truth for maintaining CrossCover as a fork of
 CrossInk. It is intentionally separate from the product README so the rules
 can evolve without changing the user-facing documentation.
 
+The complete list of CrossCover-specific features and files is maintained in
+the [CrossCover Customization Manifest](./crosscover-customizations.md). Use it
+when importing every new upstream release.
+
 ## Project relationship
 
 CrossCover is a downstream firmware fork with two permanent product features:
@@ -146,15 +150,15 @@ Every hardware-facing pull request must state:
 
 1. Merge the tested integration branch into `main` through a pull request.
 2. Add the changelog entry under a new CrossCover version.
-3. Create a CrossCover-only tag, for example `v1.6.0-crosscover.1`.
+3. Create a CrossCover release tag, for example `v1.6.0-crosscover.1`.
 4. Build the release artifacts from that tag.
 5. Verify the artifact size and SHA-256 checksum.
 6. Publish release notes that identify the upstream base and CrossCover
    changes.
 7. Delete the temporary integration/release branch after publication.
 
-Upstream tags such as `v1.5.0` are references only. CrossCover releases must
-use the `-crosscover.N` suffix and must never overwrite an upstream tag.
+Upstream tags such as `v1.5.0` are references only. CrossCover releases are
+created in the CrossCover repository and must never overwrite upstream tags.
 
 ## What must not happen
 
