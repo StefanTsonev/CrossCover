@@ -7,7 +7,7 @@
 #endif
 
 #ifndef CROSSINK_DISPLAY_VERSION
-#define CROSSINK_DISPLAY_VERSION "1.4.0-crosscover.3"
+#define CROSSINK_DISPLAY_VERSION "1.5.0"
 #endif
 
 #ifndef CROSSINK_BUILD_ENV

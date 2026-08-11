@@ -1,3 +1,14 @@
+## [v1.5.0] - 2026-08-11
+
+### Added
+
+- CrossInk v1.5.0 reader, dictionary, font, networking, nearby-transfer, and UI improvements.
+- CrossCover Hardcover integration and Anna’s Archive search/download support remain available in the release build.
+
+### Changed
+
+- Updated the firmware base to the CrossInk v1.5.0 architecture and X4 functionality.
+
 ## [v1.4.0-crosscover.3] - 2026-07-23
 
 ### Added
@@ -12,6 +23,9 @@
 ### Fixed
 
 - Hardcover TLS requests now synchronize the system clock without requiring an available RTC.
+- Restored the Hardcover action menu inside the EPUB reader.
+- Removed the misleading selected marker from the CrossCover provider menu.
+- Restored CrossCover as the default device name on X3/X4 hardware.
 - Restored Hardcover setup and Anna’s Archive download-folder entries in System settings.
 
 ## [v1.4.0-crosscover.2] - 2026-07-16
