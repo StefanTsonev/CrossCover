@@ -353,17 +353,18 @@ bool ShadowLibraryClient::search(const std::string& query, ShadowLibraryBook* re
   options.bufferSize = 2048;
   options.transport = HttpDownloader::Transport::WOLFSSL;
   const bool fetched = HttpDownloader::streamUrl(
-      url, [&body, &bodySize, &responseTooLarge](const uint8_t* data, const size_t length) {
-    if (length > MAX_SEARCH_RESPONSE_BYTES - bodySize) {
-      responseTooLarge = true;
-      return false;
-    }
-    std::memcpy(body.get() + bodySize, data, length);
-    bodySize += length;
-    body[bodySize] = '\0';
-    return true;
-  },
-      nullptr, "", "", options) == HttpDownloader::OK;
+                           url,
+                           [&body, &bodySize, &responseTooLarge](const uint8_t* data, const size_t length) {
+                             if (length > MAX_SEARCH_RESPONSE_BYTES - bodySize) {
+                               responseTooLarge = true;
+                               return false;
+                             }
+                             std::memcpy(body.get() + bodySize, data, length);
+                             bodySize += length;
+                             body[bodySize] = '\0';
+                             return true;
+                           },
+                           nullptr, "", "", options) == HttpDownloader::OK;
   if (!fetched) {
     if (responseTooLarge) {
       LOG_ERR("SHADOW", "Search response exceeds %zu byte limit", MAX_SEARCH_RESPONSE_BYTES);
