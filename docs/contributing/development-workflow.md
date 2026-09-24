@@ -1,6 +1,6 @@
 ---
 title: Development Workflow
-parent: Contributing
+parent: Maintainers
 nav_order: 3
 ---
 
@@ -21,7 +21,7 @@ This page defines the expected local workflow before opening a pull request.
   repository-maintenance area.
 
 For the complete upstream and release policy, see
-[CrossCover Upstream and Release Workflow](crosscover-upstream.md).
+[CrossCover Upstream and Release Workflow](../development/crosscover-upstream.md).
 
 ## 2) Implement with scope in mind
 
@@ -32,15 +32,18 @@ For the complete upstream and release policy, see
 
 ```sh
 ./bin/clang-format-fix
-pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+pio check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 pio run -e simulator
 pio run -e default
 ```
 
 CI enforces formatting, static analysis, and the primary firmware build.
 Use clang-format 21+ locally to match CI.
-If `clang-format` is missing or too old locally, see [Getting Started](./getting-started.md).
-Run plain `pio run` before larger PRs to build the release variants (`tiny` and `xlarge`).
+If `clang-format` is missing or too old locally, see
+[Getting Started](../development/getting-started.md). The simulator requires
+Linux, macOS, or WSL with SDL2. CrossCover publishes only the `default` X3/X4
+target; see [Building Unofficial Device Targets](../development/unsupported-target-builds.md)
+for other inherited environments.
 
 ## 4) Open the PR
 
@@ -55,4 +58,5 @@ Run plain `pio run` before larger PRs to build the release variants (`tiny` and 
 - Keep discussions technical and respectful
 - Assume good intent and focus on code-level feedback
 
-For community expectations, see [GOVERNANCE.md](../../GOVERNANCE.md).
+Repository-specific maintenance rules are documented in
+[AGENTS.md](../../AGENTS.md).

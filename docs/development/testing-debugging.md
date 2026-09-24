@@ -20,7 +20,10 @@ pio run -e simulator
 pio run -e default
 ```
 
-`pio run` without `-e` builds the X3/X4 and Sticky firmware targets from `platformio.ini`. Use it for a comprehensive build check, but prefer explicit environments while iterating.
+The simulator requires Linux, macOS, or WSL with SDL2 and may be omitted on
+native Windows. CrossCover releases only the hardware-tested `default` X3/X4
+image. See [Building Unofficial Device Targets](./unsupported-target-builds.md)
+for the other inherited environments.
 
 ## Flash and monitor
 

@@ -1,6 +1,7 @@
 ---
 title: Hyphenation Trie Format
-nav_order: 9
+parent: Development
+nav_order: 12
 ---
 
 # Hypher Binary Tries

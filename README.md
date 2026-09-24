@@ -1,12 +1,12 @@
 # CrossCover
 
-CrossCover is a personal firmware fork based on [CrossInk](https://github.com/uxjulia/CrossInk) for the Xteink X4.
+CrossCover is a personal firmware fork based on [CrossInk](https://github.com/uxjulia/CrossInk) for the Xteink X3 and X4.
 
-CrossCover adds Hardcover integration and Anna's Archive search and download support
+CrossCover adds Hardcover integration and an experimental Anna's Archive client
 while retaining the CrossInk reader foundation.
 
-Current release: `1.5.0-crosscover.1`
-Based on CrossInk: `1.5.0`
+Current release: `1.6.0-crosscover.1`
+Based on CrossInk: `1.6.0`
 
 ## Screenshots
 
@@ -51,7 +51,7 @@ Hardcover actions are user-triggered. CrossCover does not run a background sync 
 - Choose the download folder from `Settings → System → Anna’s Archive Download Folder`
 - Use a lightweight relay so the device receives only compact search results
 
-Use the feature only for books you are legally allowed to access or download.
+The current public relay is blocked by Anna's Archive's interactive browser challenge, so search and downloads are temporarily unavailable. The client remains in the firmware for a future compatible service. Use the feature only for books you are legally allowed to access or download.
 
 ## Hardcover setup
 
@@ -109,7 +109,9 @@ For the complete upstream feature list and documentation, see the [CrossInk repo
 
 ## Flashing
 
-Only flash CrossCover on a supported, non-USB-locked Xteink X3 or X4.
+Official CrossCover releases contain only the hardware-tested `firmware-x3-x4` image. Only flash it on a supported, non-USB-locked Xteink X3 or X4.
+
+CrossInk's source environments for Sticky, X4 Pro, and X4 Classic remain available, but the CrossCover maintainer does not own those devices and cannot validate or support their builds. Advanced users may [build those targets from source](docs/development/unsupported-target-builds.md) at their own risk.
 
 Before flashing, verify:
 
@@ -125,15 +127,15 @@ CrossCover follows the upstream CrossInk version and adds a fork-specific suffix
 Example:
 
 ```text
-1.5.0-crosscover.1
+1.6.0-crosscover.1
 ```
 
-This means CrossCover release `1` based on CrossInk `1.5.0`.
+This means CrossCover release `1` based on CrossInk `1.6.0`.
 
-When CrossInk releases `1.5.1`, a corresponding CrossCover release may be named:
+When CrossInk releases `1.6.1`, a corresponding CrossCover release may be named:
 
 ```text
-1.5.1-crosscover.1
+1.6.1-crosscover.1
 ```
 
 CrossCover is an independent personal fork and is not an official CrossInk release.
@@ -145,7 +147,7 @@ CrossCover is an independent personal fork and is not an official CrossInk relea
 - Automatic Hardcover matching can select an incorrect book
 - Hardcover progress updates are queued, but separate Hardcover reading sessions are not recorded
 - IPA symbols may use readable approximations when the required glyph is not available in the firmware font
-- Search availability depends on the relay and upstream mirrors
+- Anna's Archive search and downloads are currently unavailable because the upstream site requires an interactive browser challenge
 - The current search flow is limited to EPUB results
 - Downloads may fail when all upstream mirrors are unavailable
 

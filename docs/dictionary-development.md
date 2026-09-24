@@ -1,3 +1,9 @@
+---
+title: Dictionary Development
+parent: Development
+nav_order: 8
+---
+
 # Dictionary Development Guide
 
 This guide describes the dictionary implementation currently shipped on this branch. For installation and use, see [dictionary.md](dictionary.md).

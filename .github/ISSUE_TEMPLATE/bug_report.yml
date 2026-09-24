@@ -17,6 +17,8 @@ body:
         - "--- Select ---"
         - X4
         - X3
+        - X4 Pro
+        - X4 Classic
         - Seeed Sticky
     validations:
       required: true
@@ -64,7 +66,6 @@ body:
     attributes:
       label: Describe the Bug
       description: A clear and concise description of what the bug is.
-      placeholder: |
     validations:
       required: true
 

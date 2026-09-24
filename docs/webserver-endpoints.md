@@ -1,3 +1,9 @@
+---
+title: Webserver Endpoints
+parent: Development
+nav_order: 11
+---
+
 # Webserver Endpoints
 
 This document describes the HTTP, WebSocket, WebDAV, and discovery endpoints
