@@ -7,6 +7,10 @@ nav_order: 6
 
 The Controls menu lets you customize front buttons, side buttons, and reader shortcuts.
 
+CrossCover officially supports the button-based Xteink X3 and X4. References
+to touch or X4 Pro controls describe inherited source environments and are not
+hardware-tested CrossCover release targets.
+
 ## Settings Menu Layout
 
 ### Power Button
@@ -105,7 +109,7 @@ together in the configured direction. Use **Not Set** to leave a direction
 unassigned.
 
 Each action can be assigned to only one direction. If you assign an action to a
-new direction, CrossInk clears its previous direction automatically.
+new direction, CrossCover clears its previous direction automatically.
 
 Available actions depend on the device and reader:
 
@@ -210,6 +214,6 @@ pause while Quick Lock is active.
 
 ## Footnote Shortcut
 
-When a shortcut is mapped to Footnotes, the shortcut opens the footnotes submenu while reading. If the current page has only one footnote, CrossInk opens that referenced page directly.
+When a shortcut is mapped to Footnotes, the shortcut opens the footnotes submenu while reading. If the current page has only one footnote, CrossCover opens that referenced page directly.
 
 The **Quick-return from Footnotes** setting controls whether the Power button acts like Back after opening a footnote page, making it faster to return to the original reading position.

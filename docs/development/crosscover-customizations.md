@@ -1,6 +1,6 @@
 ---
 title: CrossCover Customization Manifest
-parent: Contributing
+parent: Maintainers
 nav_order: 5
 ---
 

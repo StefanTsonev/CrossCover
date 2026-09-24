@@ -1,6 +1,7 @@
 ---
 title: Activity Manager
-nav_order: 10
+parent: Development
+nav_order: 7
 ---
 
 # Activity & ActivityManager Migration Guide

@@ -1,6 +1,6 @@
 ---
 title: CrossCover Upstream and Release Workflow
-parent: Contributing
+parent: Maintainers
 nav_order: 4
 ---
 

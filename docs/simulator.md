@@ -1,11 +1,12 @@
 ---
 title: Simulator
-nav_order: 15
+parent: Development
+nav_order: 4
 ---
 
 # Development Device Simulator
 
-CrossInk can run in the [CrossPoint simulator](https://github.com/uxjulia/crosspoint-simulator), which renders the e-ink display in an SDL2 window. Use it for quick sanity checks without flashing firmware every time.
+CrossCover can run in the inherited [CrossPoint simulator](https://github.com/uxjulia/crosspoint-simulator), which renders the e-ink display in an SDL2 window. Use it for quick sanity checks without flashing firmware every time.
 
 ## Platform Support
 

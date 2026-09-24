@@ -1,3 +1,9 @@
+---
+title: File Formats
+parent: Development
+nav_order: 9
+---
+
 # File Formats
 
 These formats describe the SD-card cache files under `/.crosspoint/epub_<hash>/`.

@@ -1,3 +1,9 @@
+---
+title: Architecture Overview
+parent: Development
+nav_order: 2
+---
+
 # Architecture Overview
 
 CrossCover is firmware for the Xteink X4 and X3, built with PlatformIO targeting the ESP32-C3 microcontroller.
@@ -227,4 +233,4 @@ still use `scripts/build_web.py` to generate the flash-served headers.
 Before implementing larger ideas, check:
 
 - [SCOPE.md](../../SCOPE.md)
-- [GOVERNANCE.md](../../GOVERNANCE.md)
+- [CrossCover Customization Manifest](./crosscover-customizations.md)

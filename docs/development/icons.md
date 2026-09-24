@@ -1,11 +1,12 @@
 ---
 title: Icon Libraries
-nav_order: 4
+parent: Development
+nav_order: 6
 ---
 
 # Icon Libraries
 
-CrossInk rasterizes only the icons it uses into 1-bit C++ headers. This keeps
+CrossCover rasterizes only the icons it uses into 1-bit C++ headers. This keeps
 the firmware small enough for ESP32-C3 devices; adding an icon does not embed a
 whole icon library.
 

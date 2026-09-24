@@ -1,9 +1,14 @@
 ---
-title: Touch Navigation
-nav_order: 2
+title: Touch Navigation (Inherited Targets)
+parent: Development
+nav_order: 13
 ---
 
 # Touch Navigation
+
+> CrossCover does not publish hardware-tested touchscreen firmware. This page
+> documents inherited CrossInk behavior for developers building an unofficial
+> touchscreen target from source.
 
 This guide covers the touchscreen shortcuts available from the **Lyra**,
 **Dashboard**, and **Minimal** Home screens. These themes use the same gestures
@@ -52,4 +57,4 @@ Lyra, Dashboard, or Minimal Home screen to switch to the other recent book.
 - Swipe right from the left edge, or use the on-screen back arrow when shown,
   to go back from most screens.
 - Reader-specific page-turn and menu gestures are documented in
-  [Touch Reader Controls](./user-guide.md#touch-reader-controls).
+  [Touch Reader Controls](./user-guide.md#touch-reader-controls-unofficial-touchscreen-builds).
