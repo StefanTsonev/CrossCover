@@ -1,3 +1,22 @@
+## [v1.6.0-crosscover.1] - 2026-09-24
+
+### Added
+
+- Integrated the CrossInk v1.6.0 reader, EPUB layout, navigation, font, storage, input, and UI improvements.
+- Added the inherited v1.6.0 stable-page and percentage navigation improvements where supported by the book format.
+- Added the inherited file rename flow while preserving reading data.
+
+### Changed
+
+- Updated the firmware and FreeInk SDK baseline to CrossInk v1.6.0 while preserving CrossCover branding, Hardcover, and Anna's Archive integration points.
+- CrossCover releases now publish only the hardware-tested X3/X4 firmware; other inherited device environments remain available for unofficial local builds.
+- Documented Anna's Archive as temporarily unavailable because its upstream browser challenge blocks the public relay.
+
+### Fixed
+
+- Restored CrossCover Home, reader, and Settings hooks on the v1.6.0 activity and UI APIs.
+- Retained upstream v1.6.0 memory, rendering, dictionary, OPDS, clipping, font, storage, and input fixes.
+
 ## [v1.5.0-crosscover.1] - 2026-08-11
 
 ### Added

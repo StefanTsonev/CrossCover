@@ -62,11 +62,13 @@ git submodule update --init --recursive
 ## Build
 
 ```sh
-pio run -e simulator
 pio run -e default
 ```
 
-`pio run` without an environment builds the X3/X4 and Sticky firmware targets listed in `platformio.ini`.
+The `default` environment produces the officially released X3/X4 firmware.
+The simulator requires Linux, macOS, or WSL with SDL2. Other inherited device
+environments can be [built from source](./unsupported-target-builds.md), but
+they are not hardware-tested or published by CrossCover.
 
 ## Flash
 
@@ -78,8 +80,8 @@ pio run -e default --target upload
 
 ```sh
 ./bin/clang-format-fix
-pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
-pio run
+pio check -e default --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+pio run -e default
 ```
 
 ## What to read next

@@ -16,12 +16,13 @@ when importing every new upstream release.
 
 ## Project relationship
 
-CrossCover is a downstream firmware fork with two permanent product features:
+CrossCover is a downstream firmware fork with two permanent product areas:
 
 * Hardcover integration, including library search, reading progress, and
   Hardcover-specific settings.
-* Anna's Archive search and download through the CrossCover Cloudflare Worker
-  relay.
+* An experimental Anna's Archive client through the CrossCover Cloudflare
+  Worker relay. Its current public endpoint is blocked by the upstream site's
+  interactive browser challenge.
 
 CrossCover must preserve X3/X4 reader stability and the OpenX4/FreeInk SDK
 choice documented for the current release. A future upstream SDK migration is
@@ -134,6 +135,10 @@ pio run -e simulator
 pio run -e default
 ```
 
+The simulator requires Linux, macOS, or WSL with SDL2. Native Windows can omit
+that check when the change is not simulator-specific. The `default` X3/X4
+environment is the only officially released CrossCover hardware target.
+
 For reader/cache changes, clear the affected `.crosspoint/epub_<hash>/` cache
 before hardware testing. For network changes, record serial logs including
 free heap, largest free block, HTTP status, and TLS errors.
@@ -151,13 +156,13 @@ Every hardware-facing pull request must state:
 1. Merge the tested integration branch into `main` through a pull request.
 2. Add the changelog entry under a new CrossCover version.
 3. Create a CrossCover release tag, for example `v1.6.0-crosscover.1`.
-4. Build the release artifacts from that tag.
-5. Verify the artifact size and SHA-256 checksum.
+4. Build the `firmware-x3-x4` release artifact from that tag.
+5. Verify its size and SHA-256 checksum.
 6. Publish release notes that identify the upstream base and CrossCover
    changes.
 7. Delete the temporary integration/release branch after publication.
 
-Upstream tags such as `v1.5.0` are references only. CrossCover releases are
+Upstream tags such as `v1.6.0` are references only. CrossCover releases are
 created in the CrossCover repository and must never overwrite upstream tags.
 
 ## What must not happen
@@ -168,5 +173,6 @@ created in the CrossCover repository and must never overwrite upstream tags.
   SDK and custom integration files.
 * Do not edit generated web or i18n headers directly.
 * Do not publish releases to CrossInk-owned repositories, buckets, or catalogs.
-* Do not claim an upstream feature is supported until it builds and is tested
-  on the target X4 hardware.
+* Do not publish or claim support for a device target until it is tested on the
+  corresponding hardware. Sticky, X4 Pro, and X4 Classic builds are currently
+  source-only and unofficial.

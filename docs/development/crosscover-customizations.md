@@ -25,7 +25,7 @@ Verify these areas against the upstream tag:
 
 Remove obsolete CrossCover implementations when upstream replaces them. In
 particular, do not retain the pre-v1.5 dictionary implementation alongside the
-v1.5 dictionary pipeline.
+current upstream dictionary pipeline.
 
 Known obsolete dictionary files that must not return during an integration:
 
@@ -33,8 +33,8 @@ Known obsolete dictionary files that must not return during an integration:
 - `lib/Dictionary/StarDictReader.*`
 - `src/activities/reader/DictionaryActivity.*`
 
-The active v1.5 dictionary implementation is under `src/util/Dictionary*`,
-`src/util/DictionaryLookup*`, `src/util/DictionaryRegistry.*`, and the v1.5
+The active upstream dictionary implementation is under `src/util/Dictionary*`,
+`src/util/DictionaryLookup*`, `src/util/DictionaryRegistry.*`, and the current
 reader dictionary activities. Search for references before deleting or keeping
 any dictionary file; PlatformIO may compile unreferenced files under `lib/`.
 
@@ -90,7 +90,12 @@ Required behavior:
 - Search responses use a bounded `nothrow` buffer and heap guard; never restore
   an unbounded `std::string` response accumulator for the Worker JSON.
 
-Transport rule for the v1.5 FreeInk network stack:
+Current external limitation: the public relay is blocked by Anna's Archive's
+interactive browser challenge. Keep the client isolated and failure-safe, but
+do not describe search or downloads as operational until an authorized,
+device-compatible service has been tested.
+
+Transport rule for the FreeInk network stack:
 
 - Worker search and `/download` transfers must set
   `HttpDownloader::Transport::WOLFSSL` explicitly. The default mbedTLS path can
@@ -144,12 +149,18 @@ For each new upstream release:
 4. Compare every section above and restore only the listed CrossCover deltas.
 5. Search for stale files replaced by upstream, especially old dictionary code.
 6. Regenerate i18n/web outputs through their scripts; never edit generated files.
-7. Run clang-format, simulator build, static analysis, and default firmware build.
+7. Run clang-format, default static analysis, and the default firmware build.
+   Run the simulator on Linux, macOS, or WSL with SDL2 when the change affects
+   simulator-facing code.
 8. Flash X3 and X4 as applicable and test the exact Hardcover, Anna's Archive,
    dictionary, boot branding, and Settings paths.
 9. Add a changelog section naming both the upstream base and CrossCover changes.
 10. Merge to `main`, tag the CrossCover release, publish artifacts, and delete
     the temporary integration branch.
+
+CrossCover publishes only the hardware-tested `default` X3/X4 artifact. Keep
+other inherited environments buildable where practical, but do not publish or
+claim support for them without corresponding hardware validation.
 
 ## Required release evidence
 

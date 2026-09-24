@@ -7,38 +7,39 @@ nav_order: 2
 
 ## Supported Devices
 
-- Xteink X3, X4
-- Seeed Studio Sticky
+Official CrossCover firmware is built and hardware-tested only for:
 
-## Web Installation via USB
+- Xteink X3
+- Xteink X4
 
-#### For new installs and updates.
+Do not flash CrossCover on a USB-locked Xteink device.
 
-1. Navigate to [https://inky.crossink.dev/#flash-tools](https://inky.crossink.dev/#flash-tools) and select your device model.
-2. The latest version will be automatically selected, but if you ever want to revert to an earlier build, you can select it from the dropdown.
-3. Choose the firmware option you want to install.
-4. Click on the "Flash Firmware" button
+The source tree retains CrossInk environments for Sticky, X4 Pro, and X4
+Classic, but the CrossCover maintainer does not own those devices. CrossCover
+does not publish or support firmware images for them. Advanced users can read
+[Building Unofficial Device Targets](./development/unsupported-target-builds.md)
+and compile them at their own risk.
+
+## Download
+
+Download `firmware-x3-x4-*.bin` from the
+[CrossCover releases page](https://github.com/StefanTsonev/CrossCover/releases).
+Verify that the release identifies the expected CrossCover version before
+flashing.
 
 ## SD Card Firmware Update
 
-#### For installing newer versions of CrossInk. Can be used by USB locked devices.
+This method is for a supported device already running firmware that provides
+the SD update screen.
 
-1. Follow the same steps from the Web Installation method above. There will be an option to download the firmware instead of USB flashing.
-2. Place the downloaded `firmware-*.bin` file on your SD card. You can place this file anywhere.
-3. Go to `Settings > System > SD Card Firmware Update` and navigate to the `.bin` file and update.
+1. Copy the downloaded `firmware-x3-x4-*.bin` file to the SD card.
+2. Open `Settings > System > SD Card Firmware Update`.
+3. Select the firmware file and confirm the update.
 
-## USB Locked Devices
-
-If your device has USB data transfer disabled:
-
-1. Navigate to [https://inky.crossink.dev/#flash-tools](https://inky.crossink.dev/#flash-tools) and check the box for "I have a locked device" at the top.
-2. The latest version will be automatically selected, but if you ever want to revert to an earlier build, you can select it from the dropdown.
-3. Choose the firmware option you want to download.
-4. Click on the "Download update.bin" button and follow the instructions.
+Back up important SD-card files first and keep the device powered until the
+update completes.
 
 ## Command Line
-
-These instructions are for macOS and Linux. Windows users should use the web installer.
 
 Install `esptool`:
 
@@ -46,7 +47,8 @@ Install `esptool`:
 pip3 install esptool
 ```
 
-Download the `firmware-*.bin` file from the [releases page](https://github.com/uxjulia/CrossInk/releases), then connect your device with USB-C.
+Connect the X3 or X4 by USB-C after downloading the image from the CrossCover
+releases page.
 
 Find the device port:
 
