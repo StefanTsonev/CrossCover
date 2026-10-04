@@ -10,6 +10,7 @@
 #include <WiFi.h>
 
 #include <algorithm>
+#include <cctype>
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
@@ -272,9 +273,8 @@ void ShadowLibraryActivity::renderResultCard(const int index, const int x, const
     textY += lineHeight;
   }
   std::string fileInfo = book.format;
-  for (char& c : fileInfo) {
-    if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
-  }
+  std::transform(fileInfo.begin(), fileInfo.end(), fileInfo.begin(),
+                 [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
   if (!book.size.empty()) fileInfo += (fileInfo.empty() ? "" : " · ") + book.size;
   if (!fileInfo.empty()) {
     const auto line = renderer.truncatedText(UI_10_FONT_ID, fileInfo.c_str(), textWidth);
