@@ -20,9 +20,8 @@ CrossCover is a downstream firmware fork with two permanent product areas:
 
 * Hardcover integration, including library search, reading progress, and
   Hardcover-specific settings.
-* An experimental Anna's Archive client through the CrossCover Cloudflare
-  Worker relay. Its current public endpoint is blocked by the upstream site's
-  interactive browser challenge.
+* A LibGen client through the CrossCover Cloudflare Worker relay. Search uses
+  LibGen's HTML catalog and downloads follow its `ads.php` → `get.php` chain.
 
 CrossCover must preserve X3/X4 reader stability and the OpenX4/FreeInk SDK
 choice documented for the current release. A future upstream SDK migration is
@@ -96,7 +95,7 @@ git config pull.ff only
 
 CrossInk v1.5 moved from the OpenX4 SDK to the FreeInk SDK. Do not partially
 mix the two SDKs. Before accepting an upstream SDK migration, port and test
-Hardcover and Anna's Archive against the new HAL/network contracts. If the
+Hardcover and LibGen against the new HAL/network contracts. If the
 migration is not complete, keep the integration branch experimental and do not
 merge it into `main`.
 
@@ -110,7 +109,7 @@ Use one focused change per commit. Prefer Conventional Commit subjects:
 
 ```text
 feat(hardcover): restore library search
-feat(annas): add relay download handling
+feat(libgen): add relay download handling
 fix(reader): preserve word spacing in cache
 build: update CrossCover release metadata
 chore(repo): add upstream integration policy

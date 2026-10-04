@@ -8,14 +8,19 @@ constexpr size_t MAX_SHADOW_LIBRARY_RESULTS = 8;
 struct ShadowLibraryBook {
   std::string title;
   std::string author;
+  std::string year;
+  std::string language;
   std::string size;
   std::string downloads;
+  std::string coverUrl;
+  std::string coverBmpPath;
   std::string detailUrl;
   std::string format;
+  std::string md5;
 };
 
 /**
- * Small streaming client for the HTML search flow used by Anna's Archive.
+ * Small client for the bounded JSON search flow exposed by the LibGen relay.
  * It deliberately keeps only a handful of result records in RAM; pages and
  * download responses are never assembled in one large heap buffer.
  */

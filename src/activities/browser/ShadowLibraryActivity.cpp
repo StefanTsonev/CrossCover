@@ -1,10 +1,15 @@
 #include "ShadowLibraryActivity.h"
 
+#include <Bitmap.h>
 #include <GfxRenderer.h>
+#include <JpegToBmpConverter.h>
 #include <I18n.h>
+#include <HalStorage.h>
 #include <Memory.h>
 #include <SdCardFontSystem.h>
 #include <WiFi.h>
+
+#include <algorithm>
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
@@ -12,6 +17,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "network/ShadowLibrarySettings.h"
@@ -101,14 +107,23 @@ void ShadowLibraryActivity::loop() {
       requestUpdate();
     });
     buttonNavigator.onNextContinuous([this] {
-      selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, resultCount, PAGE_ITEMS);
+      selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, resultCount, itemsPerPage());
       requestUpdate();
     });
     buttonNavigator.onPreviousContinuous([this] {
-      selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, resultCount, PAGE_ITEMS);
+      selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, resultCount, itemsPerPage());
       requestUpdate();
     });
   }
+}
+
+int ShadowLibraryActivity::itemsPerPage() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
+                            metrics.verticalSpacing * 2;
+  // Leave room for the six-pixel selection outline above and below each cover.
+  return std::clamp(contentHeight / (COVER_HEIGHT + 20), 1, PAGE_ITEMS);
 }
 
 void ShadowLibraryActivity::render(RenderLock&&) {
@@ -152,30 +167,178 @@ void ShadowLibraryActivity::render(RenderLock&&) {
     return;
   }
 
+  if (resultCount == 0) {
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_SHADOW_LIBRARY_NO_RESULTS));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
-  GUI.drawList(
-      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(resultCount), selectedIndex,
-      [this](int index) { return results[index].title; },
-      [this](int index) {
-        std::string metadata = results[index].author;
-        std::string details = results[index].size;
-        if (!results[index].downloads.empty()) {
-          if (!details.empty()) details += " · ";
-          details += results[index].downloads + " ";
-          details += tr(STR_SHADOW_LIBRARY_DOWNLOADS);
-        }
-        if (!details.empty()) {
-          if (!metadata.empty()) metadata += " · ";
-          metadata += details;
-        }
-        return metadata;
-      },
-      nullptr, nullptr, false);
+  const int pageItems = itemsPerPage();
+  const int pageStart = (selectedIndex / pageItems) * pageItems;
+  const int cardHeight = contentHeight / pageItems;
+  const int visibleCount = std::min(pageItems, static_cast<int>(resultCount) - pageStart);
+  for (int row = 0; row < visibleCount; ++row) {
+    const int index = pageStart + row;
+    renderResultCard(index, 0, contentTop + row * cardHeight, pageWidth, cardHeight, index == selectedIndex);
+  }
+  const int totalPages = (static_cast<int>(resultCount) + pageItems - 1) / pageItems;
+  if (totalPages > 1) {
+    constexpr int dotSize = 8;
+    constexpr int dotSpacing = 6;
+    const int totalDotWidth = totalPages * dotSize + (totalPages - 1) * dotSpacing;
+    const int dotsStartX = (pageWidth - totalDotWidth) / 2;
+    const int dotY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - 4;
+    const int currentPage = selectedIndex / pageItems;
+    for (int page = 0; page < totalPages; ++page) {
+      const int dotX = dotsStartX + page * (dotSize + dotSpacing);
+      if (page == currentPage) {
+        renderer.fillRect(dotX, dotY, dotSize, dotSize, true);
+      } else {
+        renderer.drawRect(dotX, dotY, dotSize, dotSize, true);
+      }
+    }
+  }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DOWNLOAD), "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
+}
+
+void ShadowLibraryActivity::renderResultCard(const int index, const int x, const int y, const int width,
+                                             const int height, const bool selected) const {
+  const auto& book = results[index];
+  constexpr int coverCornerRadius = 2;
+  constexpr int selectionPadding = 4;
+  constexpr int selectionOuterInset = 6;
+  const bool textBlack = true;
+
+  const int coverX = x + 12;
+  const int coverY = y + std::max(4, (height - COVER_HEIGHT) / 2);
+  bool coverDrawn = false;
+  if (!book.coverBmpPath.empty() && Storage.exists(book.coverBmpPath.c_str())) {
+    FsFile file;
+    if (Storage.openFileForRead("SLIB", book.coverBmpPath, file)) {
+      Bitmap bitmap(file);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.getWidth() > 0 && bitmap.getHeight() > 0) {
+        renderer.fillRoundedRect(coverX, coverY, COVER_WIDTH, COVER_HEIGHT, coverCornerRadius, Color::White);
+        renderer.drawBitmap(bitmap, coverX, coverY, COVER_WIDTH, COVER_HEIGHT);
+        renderer.maskRoundedRectOutsideCorners(coverX, coverY, COVER_WIDTH, COVER_HEIGHT, coverCornerRadius,
+                                               Color::White);
+        renderer.drawRoundedRect(coverX, coverY, COVER_WIDTH, COVER_HEIGHT, 2, coverCornerRadius, true);
+        coverDrawn = true;
+      }
+      file.close();
+    }
+  }
+  if (!coverDrawn) {
+    renderer.fillRoundedRect(coverX, coverY, COVER_WIDTH, COVER_HEIGHT, coverCornerRadius, Color::White);
+    renderer.drawRoundedRect(coverX, coverY, COVER_WIDTH, COVER_HEIGHT, 2, coverCornerRadius, true);
+    drawLucideIcon(renderer, icon_book_marked_32, coverX + (COVER_WIDTH - 32) / 2,
+                   coverY + (COVER_HEIGHT - 32) / 2);
+  }
+
+  if (selected) {
+    renderer.drawRoundedRect(coverX - selectionPadding, coverY - selectionPadding,
+                             COVER_WIDTH + selectionPadding * 2, COVER_HEIGHT + selectionPadding * 2, 3,
+                             coverCornerRadius + selectionPadding, true);
+    renderer.drawRoundedRect(coverX - selectionOuterInset, coverY - selectionOuterInset,
+                             COVER_WIDTH + selectionOuterInset * 2, COVER_HEIGHT + selectionOuterInset * 2, 1,
+                             coverCornerRadius + selectionOuterInset, true);
+  }
+
+  const int textX = coverX + COVER_WIDTH + 18;
+  const int textWidth = x + width - textX - 12;
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const auto titleLines = renderer.wrappedText(UI_10_FONT_ID, book.title.c_str(), textWidth, 2, EpdFontFamily::BOLD);
+  int textY = coverY;
+  for (const auto& line : titleLines) {
+    renderer.drawText(UI_10_FONT_ID, textX, textY, line.c_str(), textBlack, EpdFontFamily::BOLD);
+    textY += lineHeight;
+  }
+  if (!book.author.empty()) {
+    const auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
+    renderer.drawText(UI_10_FONT_ID, textX, textY, author.c_str(), textBlack);
+    textY += lineHeight;
+  }
+
+  textY += 8;
+  std::string edition = book.language;
+  if (!book.year.empty()) edition += (edition.empty() ? "" : " · ") + book.year;
+  if (!edition.empty()) {
+    const auto line = renderer.truncatedText(UI_10_FONT_ID, edition.c_str(), textWidth);
+    renderer.drawText(UI_10_FONT_ID, textX, textY, line.c_str(), textBlack);
+    textY += lineHeight;
+  }
+  std::string fileInfo = book.format;
+  for (char& c : fileInfo) {
+    if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+  }
+  if (!book.size.empty()) fileInfo += (fileInfo.empty() ? "" : " · ") + book.size;
+  if (!fileInfo.empty()) {
+    const auto line = renderer.truncatedText(UI_10_FONT_ID, fileInfo.c_str(), textWidth);
+    renderer.drawText(UI_10_FONT_ID, textX, textY, line.c_str(), textBlack);
+  }
+}
+
+void ShadowLibraryActivity::prepareCoverThumbnails() {
+  if (!Storage.ensureDirectoryExists(COVER_CACHE_DIR)) {
+    LOG_ERR("SHADOW", "Failed to create LibGen cover cache directory");
+    return;
+  }
+
+  for (size_t i = 0; i < resultCount; ++i) {
+    auto& book = results[i];
+    book.coverBmpPath.clear();
+    if (book.coverUrl.empty() || book.md5.empty()) continue;
+
+    const std::string basePath = std::string(COVER_CACHE_DIR) + "/" + book.md5;
+    const std::string jpgPath = basePath + ".jpg";
+    const std::string bmpPath = basePath + ".bmp";
+    book.coverBmpPath = bmpPath;
+    if (Storage.exists(bmpPath.c_str())) {
+      FsFile cachedBmp;
+      bool validCache = Storage.openFileForRead("SLIB", bmpPath, cachedBmp);
+      if (validCache) {
+        Bitmap bitmap(cachedBmp);
+        validCache = bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.getWidth() == COVER_WIDTH &&
+                     bitmap.getHeight() == COVER_HEIGHT;
+        cachedBmp.close();
+      }
+      if (validCache) continue;
+      LOG_DBG("SHADOW", "Removing invalid LibGen cover cache for %s", book.md5.c_str());
+      Storage.remove(bmpPath.c_str());
+    }
+
+    HttpDownloader::DownloadOptions options;
+    options.bufferSize = 1024;
+    options.transport = HttpDownloader::Transport::WOLFSSL;
+    const auto result = HttpDownloader::downloadToFile(book.coverUrl, jpgPath, nullptr, nullptr, "", "", options);
+    if (result != HttpDownloader::OK) {
+      LOG_ERR("SHADOW", "Failed to download LibGen cover for %s", book.md5.c_str());
+      Storage.remove(jpgPath.c_str());
+      book.coverBmpPath.clear();
+      continue;
+    }
+
+    FsFile jpg;
+    FsFile bmp;
+    bool success = Storage.openFileForRead("SLIB", jpgPath, jpg) && Storage.openFileForWrite("SLIB", bmpPath, bmp);
+    if (success) {
+      success = JpegToBmpConverter::jpegFileTo1BitBmpStreamWithSize(jpg, bmp, COVER_WIDTH, COVER_HEIGHT, true);
+    }
+    jpg.close();
+    bmp.close();
+    Storage.remove(jpgPath.c_str());
+    if (!success) {
+      LOG_ERR("SHADOW", "Failed to convert LibGen cover for %s", book.md5.c_str());
+      Storage.remove(bmpPath.c_str());
+      book.coverBmpPath.clear();
+    }
+  }
 }
 
 void ShadowLibraryActivity::checkAndConnectWifi() {
@@ -231,6 +394,7 @@ void ShadowLibraryActivity::performSearch(const std::string& query) {
     // same as a valid search with no matches.
     errorMessage = tr(STR_SHADOW_LIBRARY_SEARCH_FAILED);
   } else {
+    if (resultCount > 0) prepareCoverThumbnails();
     state = State::BROWSING;
   }
   requestUpdate();
@@ -251,7 +415,7 @@ void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
   }
 
   std::string filename = StringUtils::sanitizeFilename(book.title);
-  if (filename.empty()) filename = "annas-archive-book";
+  if (filename.empty()) filename = "libgen-book";
   const auto& directory = ShadowLibrarySettings::instance().downloadDirectory();
   filename = directory == "/" ? "/" + filename : directory + "/" + filename;
   filename += "." + (book.format.empty() ? "epub" : book.format);

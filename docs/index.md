@@ -6,7 +6,7 @@ nav_order: 1
 # CrossCover
 
 CrossCover is an Xteink X3/X4 firmware based on CrossInk. It adds Hardcover
-integration and an experimental Anna's Archive client while retaining the
+integration and a LibGen client while retaining the
 upstream reader and device functionality.
 
 [View CrossCover on GitHub](https://github.com/StefanTsonev/CrossCover)

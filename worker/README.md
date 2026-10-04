@@ -1,7 +1,11 @@
-# CrossCover Anna’s Archive Worker
+# CrossCover LibGen Worker
 
-This Worker keeps Anna's Archive scraping and mirror resolution off the ESP32.
-The device only calls `/search?q=...` and streams `/download?md5=...` to SD.
+This Worker keeps LibGen scraping and download resolution off the ESP32.
+The device calls `/search?q=...`, streams `/download?md5=...` to SD, and uses
+`/cover?url=...` for LibGen thumbnails. The cover endpoint adds the headers
+LibGen requires and caches the image at the edge.
+
+Search checks the first 25 LibGen catalog entries and returns up to 8 EPUB matches.
 
 Deploy with Wrangler:
 
@@ -24,5 +28,5 @@ build_flags =
 The upstream domain is configured in `wrangler.toml`. It can be changed with:
 
 ```sh
-wrangler deploy --var UPSTREAM_ORIGIN:https://annas-archive.example
+wrangler deploy --var UPSTREAM_ORIGIN:https://libgen.li
 ```

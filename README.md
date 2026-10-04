@@ -2,10 +2,10 @@
 
 CrossCover is a personal firmware fork based on [CrossInk](https://github.com/uxjulia/CrossInk) for the Xteink X3 and X4.
 
-CrossCover adds Hardcover integration and an experimental Anna's Archive client
+CrossCover adds Hardcover integration and a LibGen client
 while retaining the CrossInk reader foundation.
 
-Current release: `1.6.0-crosscover.1`
+Current release: `1.6.0-crosscover.2`
 Based on CrossInk: `1.6.0`
 
 ## Screenshots
@@ -13,7 +13,7 @@ Based on CrossInk: `1.6.0`
 <p align="center">
   <img src="boot.jpg" alt="CrossCover home screen" width="32%">
   <img src="library.jpg" alt="CrossCover Hardcover library" width="32%">
-  <img src="annas.jpg" alt="CrossCover Anna's Archive search" width="32%">
+  <img src="shadow.jpg" alt="CrossCover LibGen search results" width="32%">
 </p>
 
 ## ⚠️ Important hardware warning
@@ -42,16 +42,17 @@ Do not flash CrossCover on:
 
 Hardcover actions are user-triggered. CrossCover does not run a background sync task or send page-by-page API updates.
 
-### Anna’s Archive integration
+### LibGen integration
 
-- Open Anna’s Archive from `Home → CrossCover → Anna’s Archive`
+- Open LibGen from `Home → CrossCover → LibGen`
 - Search books directly from the device
-- Display title, author, file size, and download count
+- Display the title, author, year, language, format, file size, and cover when available
+- Return up to 8 EPUB matches from the first 25 LibGen catalog entries
 - Download books directly to the SD card
-- Choose the download folder from `Settings → System → Anna’s Archive Download Folder`
+- Choose the download folder from `Settings → System → LibGen Download Folder`
 - Use a lightweight relay so the device receives only compact search results
 
-The current public relay is blocked by Anna's Archive's interactive browser challenge, so search and downloads are temporarily unavailable. The client remains in the firmware for a future compatible service. Use the feature only for books you are legally allowed to access or download.
+Search and downloads use the CrossCover Worker relay and LibGen's `ads.php` → `get.php` download chain. Use the feature only for books you are legally allowed to access or download.
 
 ## Hardcover setup
 
@@ -147,7 +148,7 @@ CrossCover is an independent personal fork and is not an official CrossInk relea
 - Automatic Hardcover matching can select an incorrect book
 - Hardcover progress updates are queued, but separate Hardcover reading sessions are not recorded
 - IPA symbols may use readable approximations when the required glyph is not available in the firmware font
-- Anna's Archive search and downloads are currently unavailable because the upstream site requires an interactive browser challenge
+- LibGen search and downloads depend on the availability of the LibGen catalog and its file mirrors
 - The current search flow is limited to EPUB results
 - Downloads may fail when all upstream mirrors are unavailable
 

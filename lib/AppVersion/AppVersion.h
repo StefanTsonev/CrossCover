@@ -7,7 +7,7 @@
 #endif
 
 #ifndef CROSSINK_DISPLAY_VERSION
-#define CROSSINK_DISPLAY_VERSION "1.6.0-crosscover.1"
+#define CROSSINK_DISPLAY_VERSION "1.6.0-crosscover.2"
 #endif
 
 #ifndef CROSSINK_GIT_SHA
