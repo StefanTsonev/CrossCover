@@ -1,4 +1,5 @@
 .pio
+worker/.wrangler/
 .idea
 .DS_Store
 .vscode

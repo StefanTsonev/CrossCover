@@ -3,4 +3,4 @@ main = "src/index.js"
 compatibility_date = "2026-07-22"
 
 [vars]
-UPSTREAM_ORIGIN = "https://annas-archive.pk"
+UPSTREAM_ORIGIN = "https://libgen.li"

@@ -65,10 +65,10 @@ Required behavior:
 - API credentials remain stored/importable through the existing CrossCover path.
 - Progress and other updates remain queued where the device is offline.
 
-### Anna's Archive
+### LibGen
 
 Purpose: low-memory search and download through the CrossCover Cloudflare
-Worker relay.
+Worker relay and LibGen's `ads.php` → `get.php` chain.
 
 Review these files and flows after every upstream merge:
 
@@ -78,22 +78,21 @@ Review these files and flows after every upstream merge:
 - `src/activities/home/HomeActivity.*`
 - `src/SettingsList.h` and `src/activities/settings/SettingsActivity.*`
 - `worker/` and its deployed Worker URL/configuration
-- `lib/I18n/translations/*.yaml` Anna's Archive strings
+- `lib/I18n/translations/*.yaml` LibGen strings
 
 Required behavior:
 
-- Anna's Archive is available from `Home -> CrossCover`.
-- Search results display title, author, format, size, and downloads.
+- LibGen is available from `Home -> CrossCover`.
+- Search results display title, author, year, language, format, size, and a cover when available.
+- Search checks the first 25 LibGen catalog entries and returns up to 8 EPUB matches.
 - Downloads use the configured folder and do not require an in-firmware mirror parser.
 - The Worker URL is configured explicitly and is not replaced by an upstream URL.
 - Search and download remain bounded and streaming-friendly for the ESP32-C3.
 - Search responses use a bounded `nothrow` buffer and heap guard; never restore
   an unbounded `std::string` response accumulator for the Worker JSON.
 
-Current external limitation: the public relay is blocked by Anna's Archive's
-interactive browser challenge. Keep the client isolated and failure-safe, but
-do not describe search or downloads as operational until an authorized,
-device-compatible service has been tested.
+Current external limitation: LibGen availability and individual file mirrors
+can change. Keep the client isolated and failure-safe.
 
 Transport rule for the FreeInk network stack:
 
@@ -130,7 +129,7 @@ that contains the upstream project name.
 These are product decisions, not merge conflicts to be removed:
 
 - Hardcover integration and its UI/actions.
-- Anna's Archive relay integration and download-folder setting.
+- LibGen relay integration and download-folder setting.
 - CrossCover branding and release metadata.
 - CrossCover-specific menu grouping and the hidden `selected` marker in the
   provider picker.
@@ -152,7 +151,7 @@ For each new upstream release:
 7. Run clang-format, default static analysis, and the default firmware build.
    Run the simulator on Linux, macOS, or WSL with SDL2 when the change affects
    simulator-facing code.
-8. Flash X3 and X4 as applicable and test the exact Hardcover, Anna's Archive,
+8. Flash X3 and X4 as applicable and test the exact Hardcover, LibGen,
    dictionary, boot branding, and Settings paths.
 9. Add a changelog section naming both the upstream base and CrossCover changes.
 10. Merge to `main`, tag the CrossCover release, publish artifacts, and delete
@@ -172,5 +171,5 @@ Record the following in the pull request or release checklist:
 - default build size and remaining OTA space;
 - exact UI paths tested;
 - serial logs for network and dictionary tests;
-- Worker URL/version used for Anna's Archive;
+- Worker URL/version used for LibGen;
 - confirmation that no obsolete duplicate implementation remains.

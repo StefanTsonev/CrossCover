@@ -300,7 +300,7 @@ class MirrorParser {
     if (href.find("/slow_download/") != std::string::npos && slowUrl_.empty()) {
       slowUrl_ = absoluteUrl(href);
     }
-    if (directUrl_.empty() && href.starts_with("http") && href.find("annas-archive.se") == std::string::npos &&
+    if (directUrl_.empty() && href.starts_with("http") && href.find("libgen.li") == std::string::npos &&
         (href.find("ipfs") != std::string::npos || href.find("download") != std::string::npos ||
          href.find(".epub") != std::string::npos || href.find(".pdf") != std::string::npos)) {
       directUrl_ = href;
@@ -384,14 +384,18 @@ bool ShadowLibraryClient::search(const std::string& query, ShadowLibraryBook* re
     if (resultCount >= capacity) break;
     results[resultCount].title = book["title"] | "";
     results[resultCount].author = book["author"] | "";
+    results[resultCount].year = book["year"] | "";
+    results[resultCount].language = book["language"] | "";
     results[resultCount].size = book["size"] | "";
     results[resultCount].downloads = book["downloads"] | "";
+    results[resultCount].md5 = book["md5"] | "";
+    results[resultCount].coverUrl = book["cover"] | "";
     results[resultCount].format = book["format"] | "epub";
     results[resultCount].detailUrl = book["download"] | "";
     if (!results[resultCount].title.empty() && !results[resultCount].detailUrl.empty()) ++resultCount;
   }
   LOG_DBG("SHADOW", "Relay returned %zu results", resultCount);
-  return resultCount > 0;
+  return true;
 }
 
 bool ShadowLibraryClient::fetchMirrorPage(const std::string& url, std::string& directUrl) {

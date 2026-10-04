@@ -6,7 +6,7 @@
 #include "network/ShadowLibraryClient.h"
 #include "util/ButtonNavigator.h"
 
-/** Search and download EPUBs from the Anna’s Archive HTML catalog. */
+/** Search and download books from the LibGen HTML catalog through the relay. */
 class ShadowLibraryActivity final : public Activity {
  public:
   enum class State { CHECK_WIFI, WIFI_SELECTION, SEARCH_INPUT, SEARCHING, BROWSING, DOWNLOADING, ERROR };
@@ -21,7 +21,10 @@ class ShadowLibraryActivity final : public Activity {
 
  private:
   static constexpr size_t DOWNLOAD_BUFFER_SIZE = 2048;
-  static constexpr int PAGE_ITEMS = 12;
+  static constexpr int PAGE_ITEMS = 3;
+  static constexpr int COVER_WIDTH = 123;
+  static constexpr int COVER_HEIGHT = 180;
+  static constexpr const char* COVER_CACHE_DIR = "/.crosspoint/libgen_covers";
 
   State state = State::CHECK_WIFI;
   std::unique_ptr<ShadowLibraryBook[]> results;
@@ -38,6 +41,9 @@ class ShadowLibraryActivity final : public Activity {
   void launchWifiSelection();
   void launchSearch();
   void performSearch(const std::string& query);
+  void prepareCoverThumbnails();
+  int itemsPerPage() const;
+  void renderResultCard(int index, int x, int y, int width, int height, bool selected) const;
   void downloadBook(const ShadowLibraryBook& book);
   bool preventAutoSleep() override;
 };

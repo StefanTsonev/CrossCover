@@ -1,3 +1,22 @@
+## [v1.6.0-crosscover.2] - 2026-10-03
+
+### Changed
+
+- Replaced the shadow-library backend with LibGen (`https://libgen.li`) for book search and downloads.
+- Updated CrossCover documentation and user-facing labels to describe the LibGen integration.
+- Aligned LibGen results with the Recent Books cover style: up to three full-size covers per page, aligned titles and separate metadata lines, with an outline for selection.
+- Added page-position dots to LibGen search results.
+- LibGen search results now include EPUB files only.
+
+### Fixed
+
+- LibGen downloads now follow the `ads.php` → `get.php` → CDN redirect chain directly from the device.
+- Old cached LibGen cover thumbnails with outdated dimensions are regenerated to match the results layout.
+- LibGen search now accepts result links with extra query parameters.
+- Valid searches with no matching books now show a no-results message instead of a search failure.
+- LibGen cover proxy now supports standard and fiction cover paths, fixing missing covers for regular catalog entries.
+- Updated the firmware display version to v1.6.0-crosscover.2.
+
 ## [v1.6.0-crosscover.1] - 2026-09-24
 
 ### Added
