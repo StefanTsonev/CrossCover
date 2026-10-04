@@ -2,9 +2,9 @@
 
 #include <Bitmap.h>
 #include <GfxRenderer.h>
-#include <JpegToBmpConverter.h>
-#include <I18n.h>
 #include <HalStorage.h>
+#include <I18n.h>
+#include <JpegToBmpConverter.h>
 #include <Memory.h>
 #include <SdCardFontSystem.h>
 #include <WiFi.h>
@@ -120,8 +120,8 @@ void ShadowLibraryActivity::loop() {
 int ShadowLibraryActivity::itemsPerPage() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
-                            metrics.verticalSpacing * 2;
+  const int contentHeight =
+      renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
   // Leave room for the six-pixel selection outline above and below each cover.
   return std::clamp(contentHeight / (COVER_HEIGHT + 20), 1, PAGE_ITEMS);
 }
@@ -237,14 +237,12 @@ void ShadowLibraryActivity::renderResultCard(const int index, const int x, const
   if (!coverDrawn) {
     renderer.fillRoundedRect(coverX, coverY, COVER_WIDTH, COVER_HEIGHT, coverCornerRadius, Color::White);
     renderer.drawRoundedRect(coverX, coverY, COVER_WIDTH, COVER_HEIGHT, 2, coverCornerRadius, true);
-    drawLucideIcon(renderer, icon_book_marked_32, coverX + (COVER_WIDTH - 32) / 2,
-                   coverY + (COVER_HEIGHT - 32) / 2);
+    drawLucideIcon(renderer, icon_book_marked_32, coverX + (COVER_WIDTH - 32) / 2, coverY + (COVER_HEIGHT - 32) / 2);
   }
 
   if (selected) {
-    renderer.drawRoundedRect(coverX - selectionPadding, coverY - selectionPadding,
-                             COVER_WIDTH + selectionPadding * 2, COVER_HEIGHT + selectionPadding * 2, 3,
-                             coverCornerRadius + selectionPadding, true);
+    renderer.drawRoundedRect(coverX - selectionPadding, coverY - selectionPadding, COVER_WIDTH + selectionPadding * 2,
+                             COVER_HEIGHT + selectionPadding * 2, 3, coverCornerRadius + selectionPadding, true);
     renderer.drawRoundedRect(coverX - selectionOuterInset, coverY - selectionOuterInset,
                              COVER_WIDTH + selectionOuterInset * 2, COVER_HEIGHT + selectionOuterInset * 2, 1,
                              coverCornerRadius + selectionOuterInset, true);
