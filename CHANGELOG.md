@@ -117,6 +117,7 @@
 
 - Dictionary selection now opens as a popup when multiple dictionaries are available.
 - Moved the reader's Hardcover menu to Location, immediately after Sync Progress on button devices.
+- Removed automatic GitHub CI checks for documentation, formatting, static analysis, and pull-request firmware builds.
 - Added `build.cmd` to build the default firmware with PlatformIO's Python 3.11 environment.
 
 ## [v1.4.0-crosscover.1] - 2026-07-15
