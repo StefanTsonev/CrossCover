@@ -1,14 +1,3 @@
-## [Unreleased]
-
-### Fixed
-
-- Hardcover authentication now starts from the minimal network boot to free memory for its TLS connection.
-- LibGen downloads now use a unique filename and are published only after a complete download, preserving existing books.
-- Hardcover progress is no longer sent as a page count when the linked edition has no page count.
-- Hardcover credentials and book links now use recoverable atomic writes; unreadable link data is preserved instead of replaced.
-- LibGen search responses are bounded to the device limit, and visible results appear before their thumbnails load.
-- LibGen cover responses are converted to JPEG thumbnails before the device downloads them.
-
 ## [v1.6.1-crosscover.1] - 2026-10-07
 
 ### Added
@@ -20,11 +9,21 @@
 
 - Updated the firmware baseline and displayed version to CrossInk v1.6.1 / CrossCover 1.6.1-crosscover.1.
 - Adapted CrossCover's Hardcover reader action to the new EPUB reader drawer.
+- Moved the reader's Hardcover menu to Location, immediately after Sync Progress on button devices.
+- Removed automatic GitHub CI checks for documentation, formatting, static analysis, and pull-request firmware builds.
 
 ### Fixed
 
 - Retained CrossCover Home, settings, and reader integrations alongside the new upstream activity structure.
 - Retained CrossCover branding in the device UI, documentation, and crash diagnostics.
+- Hardcover authentication now starts from the minimal network boot to free memory for its TLS connection.
+- LibGen downloads now use a unique filename and are published only after a complete download, preserving existing books.
+- Hardcover progress is no longer sent as a page count when the linked edition has no page count.
+- Hardcover credentials and book links now use recoverable atomic writes; unreadable link data is preserved instead of replaced.
+- LibGen search responses are bounded to the device limit, and visible results appear before their thumbnails load.
+- LibGen cover responses are converted to JPEG thumbnails before the device downloads them.
+- Windows firmware builds no longer register conflicting compile actions when adding build version information.
+- SdFat build patches now apply on Windows when Git checks out patch files with CRLF line endings.
 
 ## [v1.6.0-crosscover.2] - 2026-10-03
 
@@ -107,8 +106,6 @@
 
 ### Fixed
 
-- Windows firmware builds no longer register conflicting compile actions when adding build version information.
-- SdFat build patches now apply on Windows when Git checks out patch files with CRLF line endings.
 - Hardcover book search results now remain in the relevance order returned by Hardcover.
 - Dictionary lookup no longer reports that an English-Bulgarian dictionary is required.
 - Settings can now be highlighted and opened from the default home menu.
@@ -116,8 +113,6 @@
 ### Changed
 
 - Dictionary selection now opens as a popup when multiple dictionaries are available.
-- Moved the reader's Hardcover menu to Location, immediately after Sync Progress on button devices.
-- Removed automatic GitHub CI checks for documentation, formatting, static analysis, and pull-request firmware builds.
 - Added `build.cmd` to build the default firmware with PlatformIO's Python 3.11 environment.
 
 ## [v1.4.0-crosscover.1] - 2026-07-15
