@@ -158,7 +158,7 @@ void ShadowLibraryActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer,
                  Rect{0, UITheme::getInstance().getMetrics().topPadding, pageWidth,
                       UITheme::getInstance().getMetrics().headerHeight},
-                 tr(STR_SHADOW_LIBRARY));
+                 tr(STR_SHADOW_LIBRARY), nullptr, false, state != State::DOWNLOADING);
 
   if (state == State::CHECK_WIFI || state == State::SEARCHING || state == State::SEARCH_INPUT) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2,
@@ -496,14 +496,34 @@ void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
   options.shouldCancel = pollCancel;
   options.bufferSize = DOWNLOAD_BUFFER_SIZE;
   options.transport = HttpDownloader::Transport::WOLFSSL;
+  const uint32_t transferStarted = millis();
+  uint32_t lastRefresh = transferStarted;
+  unsigned lastPercent = 101;
+  size_t receivedBytes = 0;
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, temporaryPath,
-      [this](size_t downloaded, size_t total) {
-        downloadProgress = downloaded;
-        downloadTotal = total;
+      [this, &lastRefresh, &lastPercent, &receivedBytes](size_t downloaded, size_t total) {
+        receivedBytes = downloaded;
+        const uint32_t now = millis();
+        const unsigned percent = total > 0 ? static_cast<unsigned>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;
+        const bool complete = total > 0 && downloaded >= total;
+        if (!complete && lastPercent != 101 && (percent == lastPercent || now - lastRefresh < DOWNLOAD_REFRESH_MS)) {
+          return;
+        }
+        lastRefresh = now;
+        lastPercent = percent;
+        {
+          RenderLock lock;
+          downloadProgress = downloaded;
+          downloadTotal = total;
+        }
         requestUpdate(true);
       },
       &cancelRequested, "", "", options);
+  const uint32_t elapsed = millis() - transferStarted;
+  LOG_INF("SHADOW", "Download result=%d bytes=%zu elapsed=%lu ms average=%llu B/s", static_cast<int>(result),
+          receivedBytes, static_cast<unsigned long>(elapsed),
+          static_cast<unsigned long long>(elapsed > 0 ? static_cast<uint64_t>(receivedBytes) * 1000 / elapsed : 0));
 
   if (result == HttpDownloader::OK && !Storage.rename(temporaryPath.c_str(), filename.c_str())) {
     LOG_ERR("SHADOW", "Download completed but could not publish %s", filename.c_str());

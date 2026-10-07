@@ -21,6 +21,7 @@ class ShadowLibraryActivity final : public Activity {
 
  private:
   static constexpr size_t DOWNLOAD_BUFFER_SIZE = 2048;
+  static constexpr uint32_t DOWNLOAD_REFRESH_MS = 1000;
   static constexpr int PAGE_ITEMS = 3;
   static constexpr int COVER_WIDTH = 123;
   static constexpr int COVER_HEIGHT = 180;

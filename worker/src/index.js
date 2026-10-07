@@ -168,7 +168,10 @@ async function handle(request, env) {
       cf: {
         cacheEverything: true,
         cacheTtl: 604800,
-        image: { width: 246, height: 360, fit: "scale-down", format: "jpeg", quality: 75 },
+        // scale-down can pass small originals through unchanged, including
+        // chroma layouts JPEGDEC cannot decode. Resize and desaturate for e-ink
+        // so these thumbnails go through the image encoder as well.
+        image: { width: 246, height: 360, fit: "contain", saturation: 0, format: "jpeg", quality: 75 },
       },
     });
     if (!cover.ok || !cover.body) return json({ error: `cover HTTP ${cover.status}` }, 502);

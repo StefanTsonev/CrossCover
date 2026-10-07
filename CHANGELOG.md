@@ -9,6 +9,7 @@
 
 - Updated the firmware baseline and displayed version to CrossInk v1.6.1 / CrossCover 1.6.1-crosscover.1.
 - Adapted CrossCover's Hardcover reader action to the new EPUB reader drawer.
+- LibGen download progress redraws at most once per second between completion updates, reducing display work during transfers.
 - Moved the reader's Hardcover menu to Location, immediately after Sync Progress on button devices.
 - Removed automatic GitHub CI checks for documentation, formatting, static analysis, and pull-request firmware builds.
 
@@ -16,6 +17,8 @@
 
 - Retained CrossCover Home, settings, and reader integrations alongside the new upstream activity structure.
 - Retained CrossCover branding in the device UI, documentation, and crash diagnostics.
+- Hide the battery status bar during LibGen downloads to avoid distracting battery-percentage changes on each progress refresh.
+- Normalize small LibGen cover thumbnails to grayscale JPEGs instead of passing through unsupported source JPEG layouts.
 - Hardcover authentication now starts from the minimal network boot to free memory for its TLS connection.
 - LibGen downloads now use a unique filename and are published only after a complete download, preserving existing books.
 - Hardcover progress is no longer sent as a page count when the linked edition has no page count.
