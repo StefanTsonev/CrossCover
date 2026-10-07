@@ -5,8 +5,8 @@ CrossCover is a personal firmware fork based on [CrossInk](https://github.com/ux
 CrossCover adds Hardcover integration and a LibGen client
 while retaining the CrossInk reader foundation.
 
-Current release: `1.6.0-crosscover.2`
-Based on CrossInk: `1.6.0`
+Current release: `1.6.1-crosscover.1`
+Based on CrossInk: `1.6.1`
 
 ## Screenshots
 
