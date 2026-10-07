@@ -25,7 +25,7 @@ TEST_F(BookReadingStatsAtomicTest, RestoresOriginalWhenReplacementRenameFails) {
   statsWithSeconds(123).save(CACHE_PATH);
   Storage.failNextRenameFrom(statsPath + ".tmp");
 
-  statsWithSeconds(999).save(CACHE_PATH);
+  EXPECT_FALSE(statsWithSeconds(999).save(CACHE_PATH));
 
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 123U);
   EXPECT_TRUE(Storage.exists(statsPath.c_str()));
@@ -84,11 +84,27 @@ TEST_F(BookReadingStatsAtomicTest, RecoversTempWhenPublishAndBackupRestoreFail) 
 
 TEST_F(BookReadingStatsAtomicTest, SuccessfulReplacementRemovesTransactionFiles) {
   statsWithSeconds(123).save(CACHE_PATH);
-  statsWithSeconds(789).save(CACHE_PATH);
+  EXPECT_TRUE(statsWithSeconds(789).save(CACHE_PATH));
 
   EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 789U);
   EXPECT_FALSE(Storage.exists((statsPath + ".tmp").c_str()));
   EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
+}
+
+TEST_F(BookReadingStatsAtomicTest, IdenticalSaveSkipsWrite) {
+  statsWithSeconds(123).save(CACHE_PATH);
+  // The write path always clears a stale backup, so a surviving marker proves it did not run.
+  FsFile marker;
+  ASSERT_TRUE(Storage.openFileForWrite("TEST", statsPath + ".bak", marker));
+  ASSERT_EQ(marker.write(static_cast<uint8_t>(7)), 1U);
+  ASSERT_TRUE(marker.close());
+
+  statsWithSeconds(123).save(CACHE_PATH);
+  EXPECT_TRUE(Storage.exists((statsPath + ".bak").c_str()));
+
+  statsWithSeconds(124).save(CACHE_PATH);
+  EXPECT_FALSE(Storage.exists((statsPath + ".bak").c_str()));
+  EXPECT_EQ(BookReadingStats::load(CACHE_PATH).totalReadingSeconds, 124U);
 }
 
 TEST_F(BookReadingStatsAtomicTest, RemoveClearsRecoverableTransactionFiles) {

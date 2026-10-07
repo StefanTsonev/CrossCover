@@ -60,6 +60,7 @@ class DictionaryDefinitionActivity final : public Activity {
   void onEnter() override;
   void onExit() override;
   void loop() override;
+  bool handleHomeGesture() override;
   void render(RenderLock&&) override;
 
  private:
@@ -77,6 +78,7 @@ class DictionaryDefinitionActivity final : public Activity {
   LookupChain::Entry pendingBack_{};
   bool chainBackNavInProgress = false;
   bool dictionarySwitchLookupInProgress = false;
+  void navigateBack();
   bool exitAllOnBackRelease_ = false;
   // The reader activity beneath this modal owns the page and outlives us. A
   // small callback lets it redraw that page without retaining a second 48 KB

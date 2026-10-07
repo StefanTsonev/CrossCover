@@ -69,8 +69,8 @@ constexpr CssTextDecoration operator&(const CssTextDecoration a, const CssTextDe
 constexpr uint8_t CSS_TEXT_DECORATION_MASK =
     static_cast<uint8_t>(CssTextDecoration::Underline) | static_cast<uint8_t>(CssTextDecoration::LineThrough);
 
-// Display options - only None and Block are relevant for e-ink rendering
-enum class CssDisplay : uint8_t { Block = 0, None = 1 };
+// Keep inline distinct so replaced elements can participate in text layout.
+enum class CssDisplay : uint8_t { Block = 0, None = 1, Inline = 2 };
 
 // Vertical alignment options for inline elements (e.g. superscript/subscript)
 enum class CssVerticalAlign : uint8_t { Baseline = 0, Super = 1, Sub = 2 };
@@ -103,6 +103,7 @@ struct CssPropertyFlags {
   uint32_t pageBreakAfter : 1;
   uint32_t fontVariantCaps : 1;
   uint32_t listStyleType : 1;
+  uint32_t fontSize : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -127,12 +128,13 @@ struct CssPropertyFlags {
         pageBreakBefore(0),
         pageBreakAfter(0),
         fontVariantCaps(0),
-        listStyleType(0) {}
+        listStyleType(0),
+        fontSize(0) {}
 
   [[nodiscard]] bool anySet() const {
-    return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
-           marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
+    return fontSize || textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop ||
+           marginBottom || marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight ||
+           imageHeight || imageWidth || display || backgroundBlack || verticalAlign || direction || pageBreakBefore ||
            pageBreakAfter || fontVariantCaps || listStyleType;
   }
 
@@ -141,7 +143,7 @@ struct CssPropertyFlags {
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
     imageHeight = imageWidth = display = backgroundBlack = verticalAlign = direction = 0;
-    pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = 0;
+    pageBreakBefore = pageBreakAfter = fontVariantCaps = listStyleType = fontSize = 0;
   }
 };
 
@@ -159,6 +161,7 @@ struct CssStyle {
   CssTextDirection direction = CssTextDirection::Ltr;
   CssFontVariantCaps fontVariantCaps = CssFontVariantCaps::Normal;
 
+  CssLength fontSize;       // Resolved against parent/root font, not the box width
   CssLength textIndent;     // First-line indent (deferred resolution)
   CssLength marginTop;      // Vertical spacing before block
   CssLength marginBottom;   // Vertical spacing after block
@@ -170,7 +173,7 @@ struct CssStyle {
   CssLength paddingRight;   // Padding right
   CssLength imageHeight;    // Height for img (e.g. 2em) – width derived from aspect ratio when only height set
   CssLength imageWidth;     // Width for img when both or only width set
-  CssDisplay display = CssDisplay::Block;                       // display property (Block or None)
+  CssDisplay display = CssDisplay::Block;
   bool backgroundBlack = false;                                 // Simple black inline/block background support
   CssVerticalAlign verticalAlign = CssVerticalAlign::Baseline;  // vertical-align (super/sub positioning)
   bool pageBreakBefore = false;
@@ -182,6 +185,10 @@ struct CssStyle {
   // Apply properties from another style, only overwriting if the other style
   // has that property explicitly defined
   void applyOver(const CssStyle& base) {
+    if (base.hasFontSize()) {
+      fontSize = base.fontSize;
+      defined.fontSize = 1;
+    }
     if (base.hasTextAlign()) {
       textAlign = base.textAlign;
       defined.textAlign = 1;
@@ -276,6 +283,7 @@ struct CssStyle {
     }
   }
 
+  [[nodiscard]] bool hasFontSize() const { return defined.fontSize; }
   [[nodiscard]] bool hasTextAlign() const { return defined.textAlign; }
   [[nodiscard]] bool hasFontStyle() const { return defined.fontStyle; }
   [[nodiscard]] bool hasFontWeight() const { return defined.fontWeight; }

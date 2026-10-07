@@ -131,7 +131,7 @@ Mode** or **Light Mode** over the current page. The message disappears
 automatically and does not change page layout, margins, or reading position.
 
 If Safe Mode also cannot open the book, long-press the book in **File Browser**
-or **Recent Books** and choose **Reset Book Reader Settings**. This clears only
+or **Library** and choose **Reset Book Reader Settings**. This clears only
 that book's reader settings, including a saved Safe Mode or render-mode
 override. It preserves reading progress, bookmarks, clippings, and reading
 stats.
@@ -143,13 +143,13 @@ CrossInk already falls back automatically, but it is useful when you know a book
 is difficult and want it to start in a specific mode:
 
 - Long-press an EPUB in **File Browser**
-- Long-press an EPUB in **Recent Books**
+- Long-press an EPUB in **Library**
 - Choose **EPUB Render Mode**
 
 You can also change it while reading:
 
 1. Open the reader menu.
-2. Choose **Book Options**.
+2. Choose the **Settings** tab.
 3. Choose **EPUB Render Mode**.
 
 Changing render mode rebuilds the affected book layout cache. Your reading

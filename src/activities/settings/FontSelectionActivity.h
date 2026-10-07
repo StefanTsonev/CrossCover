@@ -40,6 +40,7 @@ class FontSelectionActivity final : public Activity {
   std::vector<FontEntry> fonts_;
   int selectedIndex_ = 0;
   int previewFontIndex_ = 0;
+  int integrityAlertFontIndex_ = -1;
   uint8_t originalFontFamily_ = 0;
   char originalSdFontFamilyName_[32] = {};
 

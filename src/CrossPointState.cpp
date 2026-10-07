@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <PersistableStore.h>
 #include <Serialization.h>
+#include <uzlib.h>
 
 #include <algorithm>
 #include <mutex>
@@ -13,6 +14,17 @@ constexpr uint8_t STATE_FILE_VERSION = 5;
 constexpr char STATE_FILE_BIN[] = "/.crosspoint/state.bin";
 constexpr char STATE_FILE_JSON[] = "/.crosspoint/state.json";
 constexpr char STATE_FILE_BAK[] = "/.crosspoint/state.bin.bak";
+
+// Hash the existing JSON snapshot without retaining another serialized copy.
+class StateCrcWriter {
+ public:
+  uint32_t crc = 0;
+  size_t write(uint8_t value) { return write(&value, 1); }
+  size_t write(const uint8_t* data, size_t length) {
+    crc = uzlib_crc32(data, static_cast<unsigned int>(length), crc);
+    return length;
+  }
+};
 }  // namespace
 
 bool CrossPointState::isRecentSleep(uint16_t idx, uint8_t checkCount) const {
@@ -58,17 +70,30 @@ bool CrossPointState::saveToFile() const {
   std::lock_guard<std::mutex> stateLock(_mutex);
   JsonDocument doc;
   toJson(doc);
-  return PersistableStoreBase::writeDocToFile(STATE_FILE_JSON, doc);
+  StateCrcWriter checksum;
+  serializeJson(doc, checksum);
+  if (lastSavedCrcValid && checksum.crc == lastSavedCrc && Storage.exists(STATE_FILE_JSON)) return true;
+
+  if (!PersistableStoreBase::writeDocToFile(STATE_FILE_JSON, doc)) {
+    lastSavedCrcValid = false;
+    return false;
+  }
+  lastSavedCrc = checksum.crc;
+  lastSavedCrcValid = true;
+  return true;
 }
 
 bool CrossPointState::loadFromFile() {
-  // Try JSON first
-  if (Storage.exists(STATE_FILE_JSON)) {
+  {
     std::lock_guard<std::mutex> storeLock(storeMutex);
-    JsonDocument doc;
-    if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
-      std::lock_guard<std::mutex> stateLock(_mutex);
-      return fromJson(doc.as<JsonVariantConst>());
+    lastSavedCrcValid = false;
+    // Try JSON first. A reload invalidates the remembered on-disk snapshot.
+    if (Storage.exists(STATE_FILE_JSON)) {
+      JsonDocument doc;
+      if (PersistableStoreBase::readDocFromFile(STATE_FILE_JSON, doc)) {
+        std::lock_guard<std::mutex> stateLock(_mutex);
+        return fromJson(doc.as<JsonVariantConst>());
+      }
     }
   }
 

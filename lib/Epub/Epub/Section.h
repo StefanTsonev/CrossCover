@@ -68,6 +68,7 @@ class Section {
   bool lastImagesWereSuppressed_ = false;
   bool lastLayoutAbortedForLowMemory_ = false;
   uint16_t imageEstimateViewportHeight_ = 0;
+  uint16_t imageEstimateViewportWidth_ = 0;
   uint32_t protectedImageUnits_ = 0;
   // Pages laid out by the active build. Distinct from pageCount, which is the pages
   // available to read and may include a loaded partial file's pages.

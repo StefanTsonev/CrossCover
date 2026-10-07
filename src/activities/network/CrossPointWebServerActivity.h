@@ -49,6 +49,7 @@ class CrossPointWebServerActivity final : public Activity {
 
   // Performance monitoring
   unsigned long lastHandleClientTime = 0;
+  bool leaveRequested = false;
 
   // Sustained WiFi-loss tracking; abandon only after WIFI_ABANDON_MS.
   int consecutiveDisconnects = 0;
@@ -63,6 +64,7 @@ class CrossPointWebServerActivity final : public Activity {
   void renderHeader() const;
   void renderWifiIndicator(int subHeaderTop) const;
   bool exitRequested() const;
+  bool checkUploadCancellation();
 
   void onNetworkModeSelected(NetworkMode mode);
   void onWifiSelectionComplete(bool connected);

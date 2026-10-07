@@ -472,6 +472,39 @@ void testFamilySpaceGlyphsStayBlank() {
   PASS();
 }
 
+void testFamilyInkBounds() {
+  printf("testFamilyInkBounds...\n");
+  static const EpdGlyph glyphs[] = {
+      {0, 0, 64, 0, 0, 0, 0},    // space
+      {7, 6, 130, 0, 8, 0, 0},   // a: ink ends above the baseline
+      {7, 11, 130, 0, 8, 0, 0},  // g: ink extends below the baseline
+      {3, 3, 0, 0, 10, 0, 0},    // combining acute accent
+  };
+  static const EpdUnicodeInterval intervals[] = {
+      {0x20, 0x20, 0}, {0x61, 0x61, 1}, {0x67, 0x67, 2}, {0x0301, 0x0301, 3}};
+  EpdFontData data = kTestFontData;
+  data.glyph = glyphs;
+  data.intervals = intervals;
+  data.intervalCount = 4;
+  EpdFont font(&data);
+  EpdFontFamily family(&font);
+  int width = 0, height = 0, minY = 0, maxY = 0;
+
+  family.getTextDimensions(" a ", &width, &height, EpdFontFamily::REGULAR, &minY, &maxY);
+  ASSERT_EQ(minY, 2);  // Blank spaces must not extend the ink to the baseline.
+  ASSERT_EQ(maxY, 8);
+  family.getTextDimensions("ag", &width, &height, EpdFontFamily::REGULAR, &minY, &maxY);
+  ASSERT_EQ(minY, -3);
+  ASSERT_EQ(maxY, 8);
+  family.getTextDimensions("a\xcc\x81", &width, &height, EpdFontFamily::REGULAR, &minY, &maxY);
+  ASSERT_EQ(minY, 2);
+  ASSERT_EQ(maxY, 12);  // The raised accent sits one pixel above the base letter.
+  family.getTextDimensions("", &width, &height, EpdFontFamily::REGULAR, &minY, &maxY);
+  ASSERT_EQ(minY, 0);
+  ASSERT_EQ(maxY, 0);
+  PASS();
+}
+
 void testHeightCalculation() {
   printf("testHeightCalculation...\n");
 
@@ -505,6 +538,7 @@ int main() {
   testNullGlyphAdvancePreserved();
   testFamilyMissingGlyphUsesReplacementFallback();
   testFamilySpaceGlyphsStayBlank();
+  testFamilyInkBounds();
   testHeightCalculation();
 
   printf("\n=== Results: %d passed, %d failed ===\n", testsPassed, testsFailed);

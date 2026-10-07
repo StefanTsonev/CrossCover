@@ -19,6 +19,8 @@ int main() {
   put("/.fonts/Bitmap/Bitmap_14.cpfont", "bitmap14");
   put("/fonts/Bitmap/Bitmap_22.cpfont", "shadowed");
   put("/fonts/Other/Other_12.cpfont", "other");
+  put("/.fonts/Vector/Vector-Regular.ttf", "Vector 0");
+  put("/.fonts/Vector/Vector-Bold.ttf", "Vector 1");
   // An empty/invalid hidden family must not hide a valid visible install.
   std::filesystem::create_directories(testRoot + "/.fonts/Fallback");
   put("/fonts/Fallback/Fallback_16.cpfont", "fallback");
@@ -51,8 +53,13 @@ int main() {
   bitmap->releaseDetails();
   assert(bitmap->files.empty());
   assert(bitmap->availableSizes() == std::vector<uint8_t>({10, 14}));
+  const auto* vector = registry.findFamily("Vector");
+  assert(vector && vector->isScalable() && vector->files.size() == 2);
+  vector->releaseDetails();
+  assert(vector->files.empty());
   for (const auto& family : registry.getFamilies())
     if (family.name != "Bitmap") assert(family.files.empty());
+
   // External additions/removals are detected at the next metadata boundary.
   put("/.fonts/Bitmap/Bitmap_15.cpfont", "bitmap15");
   assert(registry.loadNames(true));
@@ -109,7 +116,7 @@ int main() {
     put(path, "font");
   }
   assert(registry.loadNames(true));
-  assert(registry.getFamilyCount() == 28);
+  assert(registry.getFamilyCount() == 29);
   for (const auto& family : registry.getFamilies()) {
     assert(family.ensureDetails());
     assert(!family.files.empty());

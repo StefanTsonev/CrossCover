@@ -59,6 +59,22 @@ class WordSelectNavigator {
     uint8_t compoundSeparatorBefore : 2;
     uint8_t focusBoundary = 0;
     uint16_t focusSuffixX = 0;
+#if CROSSINK_SCALABLE_FONTS
+    uint16_t lineHeight = 0;
+#endif
+    int heightOr(const int fallback) const {
+#if CROSSINK_SCALABLE_FONTS
+      if (lineHeight) return lineHeight;
+#endif
+      return fallback;
+    }
+    void setLineHeight(const uint16_t height) {
+#if CROSSINK_SCALABLE_FONTS
+      lineHeight = height;
+#else
+      (void)height;
+#endif
+    }
 
     WordInfo() : isRtl(0), joinWithoutSpaceBefore(0), isTableText(0), compoundSeparatorBefore(0) {}
   };

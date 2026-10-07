@@ -136,12 +136,11 @@ class HalGPIO {
 #endif
   void setSharedConfirmPowerShortPressEmitsPower(bool enabled);
 
-  // Verify that the physical power button remains held through input debounce.
-  // A device configured to sleep on a short power press can wake on that same
-  // short press, which has normally ended before firmware reaches this check.
+  // Verify the physical power button through debounce, then require a long
+  // hold when the saved shortcut does not permit short-press wake.
   // Returns true if verification succeeded, false if device should return to sleep.
   // Should only be called when wakeup reason is PowerButton.
-  bool verifyPowerButtonWakeup(bool shortPressWakes);
+  bool verifyPowerButtonWakeup(bool shortPressWakes, uint16_t longHoldMs);
 
   // Check if USB is connected
   bool isUsbConnected() const;

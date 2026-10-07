@@ -13,6 +13,7 @@
 #include "activities/Activity.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
+#include "components/CoverGridHomeUi.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
@@ -29,6 +30,8 @@ class HomeActivity final : public Activity {
 
  private:
   ButtonNavigator buttonNavigator;
+  std::unique_ptr<CoverGridHomeUi> coverGridUi;
+  bool gridHasContinueReading = false;
   int selectorIndex = 0;
   int lastCarouselBookIndex = 0;  // remembered position when leaving carousel row
   int carouselCoverTouchDownIndex = -1;
@@ -86,6 +89,8 @@ class HomeActivity final : public Activity {
   bool carouselFramesReady = false;
   bool carouselFramesInverted = false;
   bool carouselWarmupPending = false;
+  uint8_t themeBeforeFrontlightPanel = 0;
+  uint8_t scaleBeforeFrontlightPanel = 0;
 
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
@@ -93,8 +98,9 @@ class HomeActivity final : public Activity {
 
   void onSelectBook(const std::string& path);
   void onFileBrowserOpen();
+  void onMinimalBrowseOpen();
   void onContinueReading();
-  void onRecentsOpen();
+  void onLibraryOpen();
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
@@ -110,24 +116,23 @@ class HomeActivity final : public Activity {
   void freeCoverBuffer();     // Free the stored cover buffer
   void invalidateCoverCache();
   void invalidatePolarityMismatchedCaches();
-  bool preRenderCarouselFrames(bool showProgressPopup = false);
+  void preRenderCarouselFrames();
   void freeCarouselFrames();
   bool allocateCarouselFrameSlots(int targetFrameCount);
-  bool buildCarouselCacheFile(const std::string& cacheKey, uint64_t cacheKeyHash, int bookCount,
-                              bool showProgressPopup = false);
+  bool saveCarouselFrameToDisk(uint64_t cacheKeyHash, int bookCount, int bookIdx, int slotIdx);
   bool loadCarouselFrameFromDisk(uint64_t cacheKeyHash, int bookCount, int bookIdx, int slotIdx);
   int chooseCarouselEvictionSlot(int centerIdx, int bookCount,
                                  std::optional<int> protectedBookIdx = std::nullopt) const;
-  void renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingStats* outStats, float* outProgressPercent,
-                                          bool* outUsedCachedStats);
+  void renderCarouselFrameToCurrentBuffer(int bookIdx);
   void renderCarouselFrame(int bookIdx, int slotIdx);
-  void updateSlidingWindowCache(int centerIdx, int bookCount);
   int getHighlightedBookIndex() const;
   int getVisibleRecentBookCount() const;
   bool canSwapHomeBook() const;
   void showNextRecentBookOnHome();
-  void updateHighlightedBookContext(bool allowEpubLoad = true);
+  void updateHighlightedBookContext(bool allowChapterTitleRead = true);
   void loadRecentBooks(int maxBooks);
+  void loadCoverGridThumbnails();
+  void activateCoverGridSelection();
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);
 
@@ -151,6 +156,6 @@ class HomeActivity final : public Activity {
   std::string getCurrentBookPath() const override;
   std::string getCurrentBookTitle() const override;
   std::unique_ptr<Activity> createFrontlightReadingStatsActivity() override;
+  void onFrontlightPanelOpened() override;
   void onFrontlightPanelClosed() override;
-  bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 };

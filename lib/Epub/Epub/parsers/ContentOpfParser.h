@@ -18,6 +18,10 @@ class ContentOpfParser final : public Print {
     IN_BOOK_TITLE,
     IN_BOOK_AUTHOR,
     IN_BOOK_LANGUAGE,
+    IN_BOOK_SUBJECT,
+    IN_BOOK_COLLECTION,
+    IN_BOOK_COLLECTION_TYPE,
+    IN_BOOK_COLLECTION_POSITION,
     IN_MANIFEST,
     IN_SPINE,
     IN_GUIDE,
@@ -29,11 +33,30 @@ class ContentOpfParser final : public Print {
   XML_Parser parser = nullptr;
   ParserState state = START;
   BookMetadataCache* cache;
+  const bool metadataOnly;
+  bool metadataComplete = false;
   HalFile tempItemStore;
   std::string coverItemId;
   Arena itemIndexArena;
   bool parseFailed = false;
   bool lowMemoryFailure = false;
+  // XML character data can arrive in several write() calls for one text node
+  // (notably around entity references). Tracked as element state rather than
+  // inferred per-callback, so a title or author split across callbacks still
+  // collapses whitespace and separators correctly.
+  bool metadataSpacePending = false;
+  bool authorSeparatorPending = false;
+  bool titleTruncated = false;
+  bool authorTruncated = false;
+  bool languageTruncated = false;
+  bool subjectTruncated = false;
+  bool seriesTruncated = false;
+  bool collectionTypeTruncated = false;
+  bool collectionPositionTruncated = false;
+  std::string collectionName;
+  std::string collectionId;
+  std::string collectionType;
+  std::string collectionPosition;
   bool hasExplicitStartReference = false;
   bool collectCssFiles = true;
 
@@ -91,6 +114,9 @@ class ContentOpfParser final : public Print {
   std::string title;
   std::string author;
   std::string language;
+  std::string subject;
+  std::string series;
+  std::string seriesIndex;
   std::string tocNcxPath;
   std::string tocNavPath;        // EPUB 3 nav document path
   std::string guideTocPageHref;  // EPUB 2 guide TOC page, if declared
@@ -100,11 +126,13 @@ class ContentOpfParser final : public Print {
   std::vector<std::string> cssFiles;  // CSS stylesheet paths
 
   explicit ContentOpfParser(const std::string& cachePath, const std::string& baseContentPath, const size_t xmlSize,
-                            BookMetadataCache* cache, const bool collectCssFiles = true)
+                            BookMetadataCache* cache, const bool collectCssFiles = true,
+                            const bool metadataOnly = false)
       : cachePath(cachePath),
         baseContentPath(baseContentPath),
         remainingSize(xmlSize),
         cache(cache),
+        metadataOnly(metadataOnly),
         collectCssFiles(collectCssFiles) {}
   ~ContentOpfParser() override;
 

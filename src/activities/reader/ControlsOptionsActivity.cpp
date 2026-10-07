@@ -41,8 +41,14 @@ uint8_t enumRawValueForDisplayIndex(const SettingInfo& setting, uint8_t displayI
   return setting.enumRawValues[displayIndex];
 }
 
-fui::BitmapRef twoFingerSwipeIcon(const StrId nameId) {
+fui::BitmapRef swipeActionIcon(const StrId nameId) {
   switch (nameId) {
+    case StrId::STR_LEFT_EDGE_UP:
+    case StrId::STR_RIGHT_EDGE_UP:
+      return fui::bitmapFromIcon(icon_arrow_up_24);
+    case StrId::STR_LEFT_EDGE_DOWN:
+    case StrId::STR_RIGHT_EDGE_DOWN:
+      return fui::bitmapFromIcon(icon_arrow_down_24);
     case StrId::STR_TWO_FINGER_SWIPE_UP:
       return fui::bitmapFromIcon(icon_arrows_up_24);
     case StrId::STR_TWO_FINGER_SWIPE_DOWN:
@@ -87,6 +93,7 @@ void ControlsOptionsActivity::rebuildSettingsList() {
   sideButtonSettings.clear();
   tapsGesturesSettings.clear();
   twoFingerSwipeSettings.clear();
+  edgeGestureSettings.clear();
 
   const auto allSettings = getSettingsList();
   settings = buildControlsSettingsParentList(allSettings);
@@ -94,6 +101,7 @@ void ControlsOptionsActivity::rebuildSettingsList() {
   homeButtonSettings = buildControlsHomeButtonSettingsList(allSettings);
   tapsGesturesSettings = buildControlsTapsGesturesSettingsList(allSettings);
   twoFingerSwipeSettings = buildControlsTwoFingerSwipeSettingsList(allSettings);
+  edgeGestureSettings = buildControlsEdgeGestureSettingsList(allSettings);
 #if CROSSINK_APP_CAP_TOUCH
   if (!gpio.hasTouch()) {
     frontButtonSettings = buildControlsFrontButtonSettingsList(allSettings);
@@ -127,6 +135,9 @@ void ControlsOptionsActivity::setCurrentSettings() {
     case SettingAction::ControlsTwoFingerSwipe:
       currentSettings = &twoFingerSwipeSettings;
       break;
+    case SettingAction::ControlsEdgeGestures:
+      currentSettings = &edgeGestureSettings;
+      break;
     default:
       currentSettings = &settings;
       break;
@@ -148,6 +159,8 @@ StrId ControlsOptionsActivity::activeSubmenuTitleId() const {
       return StrId::STR_TAPS_AND_GESTURES;
     case SettingAction::ControlsTwoFingerSwipe:
       return StrId::STR_TWO_FINGER_SWIPE;
+    case SettingAction::ControlsEdgeGestures:
+      return StrId::STR_EDGE_GESTURES;
     default:
       return StrId::STR_NONE_OPT;
   }
@@ -159,6 +172,7 @@ void ControlsOptionsActivity::openSubmenu(SettingAction action) {
   setCurrentSettings();
   selectedIndex = 0;
   topIndex = 0;
+  if (settingsCount > 0 && (*currentSettings)[selectedIndex].type == SettingType::SECTION_HEADER) moveSelection(true);
 }
 
 void ControlsOptionsActivity::closeSubmenu() {
@@ -193,7 +207,7 @@ void ControlsOptionsActivity::openEnumOptionPicker(const SettingInfo& setting) {
   std::vector<std::string> options;
   options.reserve(optionCount);
   for (uint8_t i = 0; i < optionCount; i++) {
-    options.push_back(settingEnumOptionLabel(setting, i));
+    options.push_back(sideButtonOptionLabel(setting, i));
   }
 
   uint8_t currentIndex = 0;
@@ -379,6 +393,8 @@ void ControlsOptionsActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
   }
 
   const auto& currentSettingsList = *currentSettings;
+  const std::string leftUpLabel = sideButtonGroupLabel(true);
+  const std::string rightDownLabel = sideButtonGroupLabel(false);
   std::vector<std::string> values(currentSettingsList.size());
   std::vector<fui::ListItem> items;
   items.reserve(currentSettingsList.size());
@@ -390,15 +406,19 @@ void ControlsOptionsActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
       values[i] = SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
     } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
       const uint8_t displayValue = enumDisplayIndexForRawValue(setting, SETTINGS.*(setting.valuePtr));
-      values[i] = settingEnumOptionLabel(setting, displayValue < settingEnumOptionCount(setting) ? displayValue : 0);
+      values[i] = sideButtonOptionLabel(setting, displayValue < settingEnumOptionCount(setting) ? displayValue : 0);
     } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
       values[i] = std::to_string(SETTINGS.*(setting.valuePtr));
     }
 
     const bool isSectionHeader = setting.type == SettingType::SECTION_HEADER;
     fui::ListItem item;
-    const fui::BitmapRef directionIcon = twoFingerSwipeIcon(setting.nameId);
-    item.label = isSectionHeader ? uiListSectionHeaderLabel(values[i], I18N.get(setting.nameId))
+    const fui::BitmapRef directionIcon = swipeActionIcon(setting.nameId);
+    const char* sectionLabel =
+        activeSubmenu == SettingAction::ControlsSideButtons
+            ? (setting.nameId == StrId::STR_DIR_LEFT ? leftUpLabel.c_str() : rightDownLabel.c_str())
+            : I18N.get(setting.nameId);
+    item.label = isSectionHeader ? uiListSectionHeaderLabel(values[i], sectionLabel)
                                  : (directionIcon ? "" : I18N.get(setting.nameId));
     item.icon = directionIcon;
     if (!isSectionHeader && !values[i].empty()) item.value = values[i].c_str();
@@ -421,6 +441,10 @@ void ControlsOptionsActivity::buildOptionsScreen(UiApp::ScreenType& screen) {
   props.valueInset = 8;
   props.labelText = screen.theme().bodyText;
   props.labelText.maxLines = 2;
+  if (activeSubmenu == SettingAction::ControlsSideButtons) {
+    props.headerText = screen.theme().smallText;
+    props.headerText.bold = true;
+  }
   configureUiListSectionHeaders(props, screen.theme());
   const auto rows = configureUiList(props, screen.theme(), screen.body());
   visibleRows = rows > 0 ? rows : 1;

@@ -82,11 +82,20 @@ class HalStorage {
     return storage;
   }
 
-  void reset() { files_.clear(); }
+  std::string failRenameFrom;
+  std::string failRemovePath;
+  bool failAllRenames = false;
+  void reset() {
+    files_.clear();
+    failRenameFrom.clear();
+    failRemovePath.clear();
+    failAllRenames = false;
+  }
   bool mkdir(const char*, bool = true) { return true; }
   bool exists(const char* path) const { return files_.contains(path); }
-  bool remove(const char* path) { return files_.erase(path) > 0; }
+  bool remove(const char* path) { return path != failRemovePath && files_.erase(path) > 0; }
   bool rename(const char* from, const char* to) {
+    if (failAllRenames || from == failRenameFrom) return false;
     const auto found = files_.find(from);
     if (found == files_.end() || files_.contains(to)) return false;
     files_[to] = found->second;

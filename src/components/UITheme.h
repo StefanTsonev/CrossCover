@@ -32,6 +32,8 @@ class UITheme {
                                              EpdFontFamily::Style style = EpdFontFamily::REGULAR, int lineSpacing = 0);
   void reload();
   void setTheme(CrossPointSettings::UI_THEME type);
+  static bool supportsCoverGrid();
+  static bool hasCoverGridHome();
   static int getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
                                      bool hasSubtitle, int extraReservedHeight = 0);
   // Returns the cache path for a generated thumbnail using the default 3:5
@@ -45,12 +47,17 @@ class UITheme {
   // - a legacy height-only template containing one [HEIGHT] placeholder.
   // No scaling is done here. Returns an empty string for invalid dimensions or
   // unsupported placeholder templates.
-  static std::string getCoverThumbPath(const std::string& coverBmpPath, int width, int height);
+  static std::string getCoverThumbPath(const std::string& coverBmpPath, int width, int height,
+                                       bool allowLegacyFallback = true);
   static UIIcon getFileIcon(const std::string& filename);
   static int getStatusBarHeight();
   static int getProgressBarHeight();
+  static int getReaderStatusBarHeight(ReaderStatusBarPosition position);
+  static int getReaderProgressBarHeight(ReaderStatusBarPosition position);
   // Device-specific top offset for the clock, battery, and reserved status-bar lane.
   static int getTopStatusBarInset(const GfxRenderer& renderer);
+  // Absolute screen origin shared by Home, menu headers, and the reader.
+  static int getTopStatusBarY(const GfxRenderer& renderer);
 
  private:
   const ThemeMetrics* currentMetrics;

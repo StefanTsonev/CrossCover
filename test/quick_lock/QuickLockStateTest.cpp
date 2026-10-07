@@ -128,7 +128,7 @@ TEST(ButtonShortcutController, EveryChordActionConsumesBothReleaseOrders) {
       Action::JoinNetwork,      Action::CreateHotspot,      Action::ToggleDarkMode,
       Action::Footnotes,        Action::FileBrowser,        Action::CreateClipping,
       Action::LookupWord,       Action::ToggleHomeButton,   Action::QuickActions,
-      Action::ToggleFrontlight, Action::ToggleTouchscreen,
+      Action::ToggleFrontlight, Action::ToggleTouchscreen,  Action::Library,
   };
 
   for (const auto action : actions) {
@@ -145,6 +145,25 @@ TEST(ButtonShortcutController, EveryChordActionConsumesBothReleaseOrders) {
       const auto afterRelease = controller.update(4U, false, false, false, false, action);
       EXPECT_EQ(afterRelease.consumeInput, action == Action::QuickLock);
     }
+  }
+}
+
+TEST(ButtonShortcutController, LibraryUpDownChordFiresOnceAndReleasesBothButtons) {
+  using Action = ButtonShortcutController::ChordAction;
+  using Event = ButtonShortcutController::Event;
+
+  for (const bool releaseUpFirst : {false, true}) {
+    ButtonShortcutController controller;
+    const auto started = controller.updateUpDown(1U, true, true, Action::Library, false);
+    EXPECT_EQ(started.event, Event::ConfiguredAction);
+    EXPECT_EQ(started.action, Action::Library);
+    EXPECT_TRUE(started.consumeInput);
+
+    const auto firstRelease = controller.updateUpDown(2U, !releaseUpFirst, releaseUpFirst, Action::Library, false);
+    EXPECT_EQ(firstRelease.event, Event::None);
+    EXPECT_TRUE(firstRelease.consumeInput);
+    EXPECT_TRUE(controller.updateUpDown(3U, false, false, Action::Library, false).consumeInput);
+    EXPECT_FALSE(controller.updateUpDown(4U, false, false, Action::Library, false).consumeInput);
   }
 }
 

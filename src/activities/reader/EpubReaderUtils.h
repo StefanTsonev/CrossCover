@@ -8,6 +8,8 @@
 #include <optional>
 #include <string>
 
+#include "util/FileContentEquals.h"
+
 namespace EpubReaderUtils {
 
 struct Progress {
@@ -79,20 +81,6 @@ inline bool saveProgress(Epub& epub, int spineIndex, int pageNumber, int pageCou
     LOG_ERR("ERS", "Progress values out of range: spine=%d page=%d count=%d", spineIndex, pageNumber, pageCount);
     return false;
   }
-  const std::string progressPath = epub.getCachePath() + "/progress.bin";
-  const std::string tmpPath = progressPath + ".tmp";
-  const std::string backupPath = progressPath + ".bak";
-
-  if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
-    LOG_ERR("ERS", "Could not remove stale progress temp file");
-    return false;
-  }
-
-  FsFile f;
-  if (!Storage.openFileForWrite("ERS", tmpPath, f)) {
-    LOG_ERR("ERS", "Could not open progress temp file for write!");
-    return false;
-  }
   uint8_t data[10];
   data[0] = spineIndex & 0xFF;
   data[1] = (spineIndex >> 8) & 0xFF;
@@ -107,6 +95,24 @@ inline bool saveProgress(Epub& epub, int spineIndex, int pageNumber, int pageCou
     data[8] = (*visibleTextOffset >> 16) & 0xFF;
     data[9] = (*visibleTextOffset >> 24) & 0xFF;
     dataSize = sizeof(data);
+  }
+  const std::string progressPath = epub.getCachePath() + "/progress.bin";
+  // Repeated menu, restart and exit saves can describe the same position.
+  // Compare the complete payload so relayout counts and text offsets still persist.
+  if (fileContentEquals("ERS", progressPath.c_str(), data, dataSize)) return true;
+
+  const std::string tmpPath = progressPath + ".tmp";
+  const std::string backupPath = progressPath + ".bak";
+
+  if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
+    LOG_ERR("ERS", "Could not remove stale progress temp file");
+    return false;
+  }
+
+  FsFile f;
+  if (!Storage.openFileForWrite("ERS", tmpPath, f)) {
+    LOG_ERR("ERS", "Could not open progress temp file for write!");
+    return false;
   }
   const size_t written = f.write(data, dataSize);
   if (written != dataSize) {

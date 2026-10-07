@@ -1,0 +1,4 @@
+add_executable(LibraryRecentOrderTest LibraryRecentOrderTest.cpp)
+target_include_directories(LibraryRecentOrderTest PRIVATE ${REPO_ROOT}/lib/LibraryIndex)
+target_link_libraries(LibraryRecentOrderTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(LibraryRecentOrderTest)

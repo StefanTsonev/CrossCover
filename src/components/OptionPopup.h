@@ -17,6 +17,11 @@
 
 class OptionPopup {
  public:
+#ifdef SIMULATOR
+  Rect simulatorOptionRect(const int index) const { return layout.options.at(index); }
+  bool simulatorOptionDisabled(const int index) const { return isDisabled(index); }
+#endif
+
   struct Note {
     constexpr Note(const char* label = nullptr, const char* body = nullptr) : boldLabel(label), body(body) {}
 
@@ -73,6 +78,8 @@ class OptionPopup {
     primaryOptionIndex = -1;
     popupNote = Note();
     confirmationMode = true;
+    dividerAfterOption = -1;
+    selectionArrow = false;
     activate(currentIndex);
   }
 
@@ -94,6 +101,9 @@ class OptionPopup {
     primaryOptionIndex = index;
     layoutValid = false;
   }
+
+  void setDividerAfterOption(const int index) { dividerAfterOption = index; }
+  void setSelectionArrow(const bool enabled) { selectionArrow = enabled; }
 
   void show(const char* titleStr, const std::vector<std::string>& options, int currentIndex,
             std::function<void(int)> onSelect, Note note = Note()) {
@@ -281,9 +291,31 @@ class OptionPopup {
     GUI.drawOptionPopup(renderer, title.c_str(), ownedStrings, selectedIndex, confirmationMode, tr(STR_CANCEL),
                         tr(STR_SAVE), footerFocused, primaryOptionIndex, popupNote.boldLabel, popupNote.body,
                         disabledOptions, renderLayout.firstOptionIndex);
+    const int visibleIndex = dividerAfterOption - renderLayout.firstOptionIndex;
+    if (visibleIndex >= 0 && visibleIndex + 1 < static_cast<int>(renderLayout.options.size())) {
+      const auto& row = renderLayout.options[visibleIndex];
+      const auto& next = renderLayout.options[visibleIndex + 1];
+      const int y = (row.y + row.height + next.y) / 2;
+      const int inset = UITheme::getInstance().getMetrics().optionPopupInnerPadding;
+      renderer.drawLine(renderLayout.dialog.x + inset, y, renderLayout.dialog.x + renderLayout.dialog.width - inset, y);
+    }
+    const int selectedVisibleIndex = selectedIndex - renderLayout.firstOptionIndex;
+    if (selectionArrow && selectedVisibleIndex >= 0 &&
+        selectedVisibleIndex < static_cast<int>(renderLayout.options.size())) {
+      const auto& row = renderLayout.options[selectedVisibleIndex];
+      const int x = row.x + 8;
+      const int y = row.y + row.height / 2;
+      const int xs[] = {x, x, x + 9};
+      const int ys[] = {y - 6, y + 6, y};
+      renderer.fillPolygon(xs, ys, 3, UITheme::getInstance().getMetrics().optionPopupSelectionLight);
+    }
   }
 
   bool isActive() const { return active; }
+
+  void dismiss(MappedInputManager& input, const std::function<void()>& requestUpdate) {
+    if (active) cancel(input, requestUpdate, false);
+  }
 
  private:
   struct Layout {
@@ -428,6 +460,8 @@ class OptionPopup {
   Note popupNote;
   bool skipPostSelectionUpdate_ = false;
   int primaryOptionIndex = -1;
+  int dividerAfterOption = -1;
+  bool selectionArrow = false;
   ButtonNavigator buttonNavigator;
   mutable Layout layout;
   mutable bool layoutValid = false;
@@ -464,6 +498,8 @@ class OptionPopup {
     onSaveCallback = nullptr;
     onCancelCallback = nullptr;
     primaryOptionIndex = -1;
+    dividerAfterOption = -1;
+    selectionArrow = false;
   }
 
   void activateSelection(MappedInputManager& input, const std::function<void()>& requestUpdate,

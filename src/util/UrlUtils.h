@@ -3,6 +3,9 @@
 
 namespace UrlUtils {
 
+// Omit query tokens, fragments, and credentials from diagnostic URLs.
+std::string forLog(const std::string& url);
+
 /**
  * Check if URL uses HTTPS protocol
  */

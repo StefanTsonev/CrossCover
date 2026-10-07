@@ -15,6 +15,12 @@ struct BlockStyle {
   // the remaining space into a single gap.
   static constexpr float MAX_HORIZONTAL_INSET_EM = 2.0f;
 
+  // Zero keeps the reader font. Scale is layout-only Q8 relative to the
+  // user's body size; cached lines retain only the resolved size and height.
+  uint16_t fontScale = 256;
+  uint8_t fontSize = 0;
+  uint16_t lineHeight = 0;
+
   CssTextAlign alignment = CssTextAlign::Justify;
 
   // Spacing (in pixels)

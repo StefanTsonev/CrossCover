@@ -99,6 +99,7 @@ class ClippingStore {
   static void deleteForFilePath(const std::string& filePath, const std::string& bookType);
   static bool migrateForFilePath(const std::string& oldFilePath, const std::string& newFilePath,
                                  const std::string& title, const std::string& author, const std::string& bookType);
+  static bool hasStoredStateForFilePath(const std::string& filePath, const std::string& bookType);
   static bool beginRenameMigration(const std::string& oldFilePath, const std::string& newFilePath,
                                    const std::string& title, const std::string& author, const std::string& bookType,
                                    RenameMigration& migration);

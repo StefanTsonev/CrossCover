@@ -10,7 +10,9 @@
 #define MINIZ_NO_ARCHIVE_APIS
 #define MINIZ_NO_ARCHIVE_WRITING_APIS
 #define MINIZ_NO_DEFLATE_APIS
+#ifndef MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#endif
 
 // The ESP32 mask ROM exports tinfl_* at fixed addresses via DIRECT linker
 // script assignments (e.g. "tinfl_decompress = 0x...;" in the ROM .ld),

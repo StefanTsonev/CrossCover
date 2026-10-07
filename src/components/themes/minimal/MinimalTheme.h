@@ -44,7 +44,7 @@ class MinimalTheme : public LyraTheme {
                                          bool allowTwoLineTitles = true);
 
   void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle = nullptr,
-                  bool readerContext = false) const override;
+                  bool readerContext = false, bool showStatus = true) const override;
   void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
                   bool selected) const override;
   bool tabIndexFromPoint(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs, int x, int y,

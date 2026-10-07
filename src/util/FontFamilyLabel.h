@@ -3,8 +3,11 @@
 #include <SdCardFontRegistry.h>
 
 #include <cstdint>
+#include <iterator>
 #include <string>
 #include <string_view>
+
+#include "../ReaderFontSizeStep.h"
 
 struct FontFamilyPointSizeRange {
   uint8_t first = 0;
@@ -13,8 +16,12 @@ struct FontFamilyPointSizeRange {
   bool isValid() const { return first != 0; }
 };
 
+inline constexpr FontFamilyPointSizeRange BUILTIN_FONT_POINT_SIZE_RANGE{
+    BUILTIN_READER_FONT_SIZES[0], BUILTIN_READER_FONT_SIZES[std::size(BUILTIN_READER_FONT_SIZES) - 1]};
+
 inline FontFamilyPointSizeRange fontFamilyPointSizeRange(const SdCardFontFamilyInfo& family) {
   if (family.firstSize) return {family.firstSize, family.lastSize};
+  if (family.isScalable()) return {8, 22};
   FontFamilyPointSizeRange range;
   for (const auto& file : family.files) {
     if (file.style != 0) continue;

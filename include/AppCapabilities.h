@@ -38,3 +38,6 @@
 #error "CROSSINK_APP_CAP_USB_DRIVE must match FREEINK_CAP_USB_MSC"
 #endif
 #endif
+
+// Every button-only reader uses the full-screen menu and its bounded sample preview.
+#define CROSSINK_APP_READER_SAMPLE_PREVIEW (!CROSSINK_APP_CAP_TOUCH)

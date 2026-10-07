@@ -19,4 +19,12 @@ class GfxRenderer {
     return {text};
   }
   void displayBuffer() const {}
+  void drawLine(int, int, int, int) const { ++drawnLines; }
+  void fillPolygon(const int*, const int*, int, bool) const { ++drawnTriangles; }
+  int lineCount() const { return drawnLines; }
+  int triangleCount() const { return drawnTriangles; }
+
+ private:
+  mutable int drawnLines = 0;
+  mutable int drawnTriangles = 0;
 };

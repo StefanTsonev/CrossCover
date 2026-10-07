@@ -2,6 +2,7 @@
 
 #include <EpdFontFamily.h>
 
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -17,6 +18,14 @@ template <typename T>
 class ArenaVector;
 
 class ParsedText {
+ public:
+  struct InlineImagePlacement {
+    uint16_t id;
+    int16_t x;
+    uint16_t height;
+  };
+
+ private:
   // words/rubyTexts are std::deque, not std::vector: a paragraph can hold thousands
   // of tokens (CJK splits every character), and a vector grows by reallocating its
   // whole element array into one contiguous block (32 B/std::string -> 64-128 KB at
@@ -33,6 +42,13 @@ class ParsedText {
   std::vector<uint8_t> wordFocusBoundary;  // UTF-8 byte offset where the regular suffix starts; 0 = no split
   std::vector<bool> wordGuideDotBefore;    // true = virtual guide dot belongs between previous token and this one
   std::vector<uint8_t> wordBackgroundBlack;
+  // Sparse CSS inline padding. The value shifts one rendered token without
+  // becoming text, so empty styled spans still occupy their intended width.
+  struct InlinePadding {
+    size_t wordIndex;
+    int16_t pixels;
+  };
+  std::deque<InlinePadding> inlinePaddings;
   // Layout-only text coordinates. The rendered page never retains these; use
   // compact deltas while a paragraph is pending to protect C3 heap headroom.
   struct VisibleOffsetRebase {
@@ -66,6 +82,7 @@ class ParsedText {
   std::vector<uint8_t> reorderedFocusBoundaryScratch;
   std::vector<bool> reorderedGuideDotBeforeScratch;
   std::vector<uint8_t> reorderedBackgroundBlackScratch;
+  std::vector<int16_t> reorderedLeadingPaddingScratch;
   std::vector<std::string> lineWordsScratch;
   std::vector<EpdFontFamily::Style> lineStylesScratch;
   std::vector<uint16_t> lineWidthsScratch;
@@ -73,7 +90,9 @@ class ParsedText {
   std::vector<bool> lineGuideDotBeforeScratch;
   std::vector<bool> lineHasSpaceBeforeScratch;
   std::vector<uint8_t> lineBackgroundBlackScratch;
+  std::vector<int16_t> lineLeadingPaddingScratch;
   std::vector<uint16_t> visualOrderScratch;
+  std::vector<InlineImagePlacement> lineImagesScratch;
 
   void reserveTokenCapacity(size_t additionalTokens);
   int resolveFirstLineIndent(bool isFirstLine, const GfxRenderer& renderer, int fontId) const;
@@ -95,6 +114,9 @@ class ParsedText {
   void pushVisibleOffset(uint32_t offset);
   void insertVisibleOffset(size_t wordIndex, uint32_t offset);
   void eraseVisibleOffsetPrefix(size_t count);
+  int16_t inlinePaddingBefore(size_t wordIndex) const;
+  void shiftInlinePaddingsAfter(size_t wordIndex);
+  void eraseInlinePaddingPrefix(size_t count);
   int calculateRubyExtraStartOffset(size_t wordIdx, size_t maxWordIdx, const GfxRenderer& renderer, int fontId) const;
   int calculateRubyExtraEndOffset(size_t lineStartIdx, size_t lineBreakIdx, const GfxRenderer& renderer,
                                   int fontId) const;
@@ -124,7 +146,10 @@ class ParsedText {
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,
                bool backgroundBlack = false, uint8_t linkId = 0, uint32_t visibleTextOffset = 0,
-               uint32_t referenceTextOffset = 0);
+               uint32_t referenceTextOffset = 0, int16_t leadingPadding = 0);
+  void addInlineImage(uint16_t id, uint16_t width, uint16_t height, bool attachToPrevious, uint32_t visibleTextOffset,
+                      uint32_t referenceTextOffset);
+  const std::vector<InlineImagePlacement>& currentLineImages() const { return lineImagesScratch; }
   void setRubyForWordAt(size_t index, const std::string& ruby);
   void setRubyGroupAt(size_t startIndex, size_t count, const std::string& ruby);
   EpdFontFamily::Style getWordStyleAt(size_t index) const {
@@ -137,6 +162,7 @@ class ParsedText {
   size_t size() const { return words.size(); }
   bool isEmpty() const { return words.empty(); }
   bool isContinuation() const { return isContinuation_; }
+  void setContinuation(bool continuation) { isContinuation_ = continuation; }
   bool layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>, uint32_t, uint32_t)>& processLine,
                              bool includeLastLine = true);

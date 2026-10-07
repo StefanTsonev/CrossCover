@@ -17,6 +17,7 @@
 #include "EndOfBookOptions.h"
 #include "GlobalReadingStats.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
@@ -33,15 +34,21 @@ class XtcReaderActivity final : public Activity {
   GlobalReadingStats globalStats;
   ReadingStatsDateTime sessionStartLocalDateTime;
   bool hasSessionStartLocalDateTime = false;
+  bool bookStatsEnabled = true;
+  bool statsTrackingActive = true;
+  bool paceDirty = false;
+  bool pendingStatsCommit = false;
   bool longPowerPageTurnHandled = false;
   // Home-key shortcuts are dispatched before this activity's normal input loop.
   // Queue the turn so it follows the same guarded XTC page-turn path.
   bool shortcutPageTurnPending = false;
+  bool shortcutPageTurnPendingFromSide = false;
   bool shortcutPreviousPagePending = false;
+  bool shortcutPreviousPagePendingFromSide = false;
   // Session-only display toggle; fixed-layout XTC pages are never regenerated.
   bool statusBarVisible = true;
   bool longPressMenuHandled = false;
-  bool sideButtonLongPressHandled = false;
+  SideButtonShortcuts sideButtonShortcuts;
   bool frontButtonLongPressHandled = false;
   bool longPressBackHandled = false;
   bool skipRecentBookUpdateOnEntry = false;
@@ -57,20 +64,25 @@ class XtcReaderActivity final : public Activity {
   };
 
   void renderPage(uint32_t pageToRender);
-  void renderStatusBarOverlay(StatusBarOverlayPosition position, uint32_t pageToRender) const;
-  StatusBarInfo getStatusBarInfo(uint32_t pageToRender) const;
+  void renderStatusBarOverlay(StatusBarOverlayPosition position, uint32_t pageToRender, bool drawContent) const;
+  StatusBarInfo getStatusBarInfo(uint32_t pageToRender, bool includeTitle = false) const;
   bool saveProgress(uint32_t page);
   bool queueProgressSave(uint32_t pageToRender);
   bool flushQueuedProgress();
+  void saveProgressBeforeRestart();
   void loadProgress();
   void pauseReadingStatsTimer(const char* source = "unknown");
+  void syncStatsTrackingState();
   void resumeReadingStatsTimer(const char* source = "unknown");
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
   bool forwardPageReadElapsed(uint32_t& seconds, const char* source) const;
   void recordCurrentPageReadingTime(const char* source = "unknown");
   void recordForwardPageTurn(uint32_t seconds, bool recordPace);
-  bool formatTimeLeftLabel(char* buf, size_t len, uint32_t pageToRender) const;
+  bool formatTimeLeftLabel(char* buf, size_t len, uint32_t pageToRender, bool bookEstimate) const;
   void commitReadingStats();
+  void finalizeReadingStatsOnExit();
+  uint32_t globalStatsResetRevisionAtPanelOpen = 0;
+  void applyBookStatsEditsFromDisk();
   void resetCurrentBookStatsAfterDelete();
   void setBookCompleted(bool isCompleted);
   float getCurrentBookProgressPercent() const;
@@ -102,6 +114,7 @@ class XtcReaderActivity final : public Activity {
     return true;
   }
   bool isReaderActivity() const override { return true; }
+  bool isBookReaderActivity() const override { return true; }
   bool usesFullScreenReaderVerticalSwipes() const override {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
     return true;
@@ -126,7 +139,11 @@ class XtcReaderActivity final : public Activity {
   std::string getCurrentBookTitle() const override { return xtc ? xtc->getTitle() : std::string{}; }
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
   std::unique_ptr<Activity> createFrontlightReadingStatsActivity() override;
-  void onFrontlightPanelOpened() override { pauseReadingStatsTimer("frontlight_panel"); }
+  void onFrontlightPanelOpened() override {
+    pauseReadingStatsTimer("frontlight_panel");
+    saveProgressBeforeRestart();
+    globalStatsResetRevisionAtPanelOpen = GlobalReadingStats::localResetRevision();
+  }
   void onFrontlightPanelClosed() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 

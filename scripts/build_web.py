@@ -8,11 +8,16 @@ Source of truth lives under web/:
   web/assets/logo.png      - drop logo, served once at /logo.png
 
 Outputs land in src/network/html/ with the identifiers the C++ already uses.
-No third-party dependencies (runs inside the PlatformIO pre-build step)."""
+Page JS and CSS are minified with esbuild (a pinned version via npx, or one on
+PATH) when Node is available; without it the build still works and ships the
+sources unminified, which costs about 23 KB of flash."""
 import os
 import re
 import gzip
 import hashlib
+import shutil
+import subprocess
+import tempfile
 
 try:
     ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +55,35 @@ def minify_html(html):
 def minify_css(css):
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
     return re.sub(r"\s+", " ", css).strip()
+
+ESBUILD_VERSION = "0.24.2"
+
+def esbuild_commands():
+    npx = shutil.which("npx")
+    if npx:
+        yield [npx, "--yes", f"esbuild@{ESBUILD_VERSION}"]
+    exe = shutil.which("esbuild")
+    if exe:
+        try:
+            version = subprocess.check_output([exe, "--version"], text=True, timeout=10).strip()
+        except (OSError, subprocess.SubprocessError):
+            return
+        if version == ESBUILD_VERSION:
+            yield [exe]
+
+def minify_page_assets(paths):
+    """Minify page JS/CSS in one esbuild run. Returns {path: text}, or {} when
+    esbuild is unavailable so callers fall back to the unminified sources."""
+    with tempfile.TemporaryDirectory() as out:
+        for cmd in esbuild_commands():
+            try:
+                subprocess.run(cmd + ["--minify", f"--outdir={out}", "--log-level=error", *paths],
+                               check=True, capture_output=True, timeout=180)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            return {p: read(out, os.path.basename(p)) for p in paths}
+    print("build_web: esbuild not available (needs Node/npx); page JS/CSS left unminified")
+    return {}
 
 def render(template, values):
     # Single pass so substituted content is never re-scanned for placeholders.
@@ -91,10 +125,15 @@ v = hashlib.sha1(style_css.encode("utf-8") + logo_png).hexdigest()[:8]
 
 base = read(WEB, "templates", "base.html")
 
+page_assets = [os.path.join(WEB, "pages", f"{slug}.{ext}") for slug in PAGES for ext in ("css", "js")]
+minified = minify_page_assets([p for p in page_assets if os.path.getsize(p)])
+
 for slug, (ident, title, active, head_extra) in PAGES.items():
-    page_css = read(WEB, "pages", f"{slug}.css")
+    css_path = os.path.join(WEB, "pages", f"{slug}.css")
+    js_path = os.path.join(WEB, "pages", f"{slug}.js")
+    page_css = minified.get(css_path) or read(css_path)
     page_html = read(WEB, "pages", f"{slug}.html")
-    page_js = read(WEB, "pages", f"{slug}.js").strip()
+    page_js = (minified.get(js_path) or read(js_path)).strip()
     script = f"<script>\n{page_js}\n</script>" if page_js else ""
     values = {
         "title": title, "v": v, "head_extra": head_extra,

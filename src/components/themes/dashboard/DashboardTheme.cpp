@@ -8,6 +8,7 @@
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Xtc.h>
 
 #include <algorithm>
 #include <cmath>
@@ -16,8 +17,10 @@
 #include <string>
 #include <vector>
 
+#include "CrossPointSettings.h"
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
+#include "activities/reader/BookStatsTracking.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "components/TouchRegistry.h"
@@ -247,7 +250,7 @@ void drawStatsRow(const GfxRenderer& renderer, const int rightX, const int y, co
 }
 
 void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, const BookReadingStats* stats,
-                        const float progressPercent, const bool black = true) {
+                        const float progressPercent, const bool showStats, const bool black = true) {
   const int rightX = renderer.getScreenWidth() - contentInset(renderer) - (gpio.deviceIsX3() ? kPairInwardShiftX3 : 0);
   const int blockH = statsBlockHeight(renderer);
   const bool showRtcStats = halClock.isAvailable();
@@ -260,6 +263,19 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   char finishDate[24];
   uint32_t estimatedSeconds = 0;
   const bool hasEstimate = estimatedTimeLeft(bookStats, progressPercent, estimatedSeconds);
+  if (!showStats) {
+    if (hasEstimate) {
+      formatCompactDuration(estimatedSeconds, value, sizeof(value));
+      drawStatsRow(renderer, rightX, coverRect.y + coverRect.height / 2 - blockH, value, tr(STR_TIME_LEFT_SHORT),
+                   black);
+    }
+    if (progressPercent >= 0.0f) {
+      snprintf(value, sizeof(value), "%d%%", static_cast<int>(progressPercent + 0.5f));
+      const int progressY = hasEstimate ? coverRect.y + coverRect.height / 2 + blockH : coverRect.y;
+      drawStatsRow(renderer, rightX, progressY, value, tr(STR_STATS_PROGRESS_LBL), black);
+    }
+    return;
+  }
   ReadingStatsDateTime today;
   const bool hasToday = showRtcStats && getCurrentLocalReadingStatsDateTime(today);
   const ReadingStatsDate endDate = bookStats.isCompleted && bookStats.finishedDate.isValid()
@@ -340,6 +356,15 @@ void drawDashboardStats(const GfxRenderer& renderer, const Rect& coverRect, cons
   formatReadingStatsShortDate(finishDisplayDate, finishDate, sizeof(finishDate));
   drawStatsRow(renderer, rightX, rowY, finishDate,
                bookStats.isCompleted ? tr(STR_STATS_FINISHED_DATE) : tr(STR_STATS_EST_FINISH_DATE), black);
+}
+
+bool showBookStatsForPath(const std::string& path) {
+  if (!SETTINGS.shouldTrackReadingStats()) return false;
+  if (FsHelpers::hasEpubExtension(path))
+    return BookStatsTracking::isBookEnabled(Epub::cachePathForFilePath(path, "/.crosspoint"));
+  if (FsHelpers::hasXtcExtension(path))
+    return BookStatsTracking::isBookEnabled(Xtc(path, "/.crosspoint").getCachePath());
+  return false;
 }
 
 bool dominantReaderTypeBucket(const GlobalReadingStats& globalStats, ReadingTimeBucket& bucketOut) {
@@ -562,9 +587,9 @@ void DashboardTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const
   }
   TouchRegistry::getInstance().add(coverRect, 0, TouchRegistry::Cover);
 
-  drawDashboardStats(renderer, coverRect, stats, progressPercent);
+  drawDashboardStats(renderer, coverRect, stats, progressPercent, showBookStatsForPath(recentBooks[0].path));
   drawBookText(renderer, coverRect, recentBooks[0], currentChapterTitle);
-  drawFooterStats(renderer, coverRect, globalStats);
+  if (SETTINGS.shouldTrackReadingStats()) drawFooterStats(renderer, coverRect, globalStats);
 }
 
 void DashboardTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook& book, const BookReadingStats* stats,
@@ -576,7 +601,7 @@ void DashboardTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBo
                          DashboardMetrics::values.homeCoverTileHeight};
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
   drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);
-  drawDashboardStats(renderer, coverRect, stats, progressPercent, inverted);
+  drawDashboardStats(renderer, coverRect, stats, progressPercent, showBookStatsForPath(book.path), inverted);
   drawBookText(renderer, coverRect, book, currentChapterTitle, inverted);
-  drawFooterStats(renderer, coverRect, globalStats, !inverted);
+  if (SETTINGS.shouldTrackReadingStats()) drawFooterStats(renderer, coverRect, globalStats, !inverted);
 }

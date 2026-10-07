@@ -99,6 +99,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
       case UIIcon::Wifi:
         return freeink::ui::bitmapFromIcon(icon_wifi_32);
       case UIIcon::Library:
+        return freeink::ui::bitmapFromIcon(icon_landmark_32);
+      case UIIcon::Opds:
         return freeink::ui::bitmapFromIcon(icon_lyra_library_32);
       case UIIcon::Hotspot:
         return freeink::ui::bitmapFromIcon(icon_radio_tower_32);
@@ -120,6 +122,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
     case UIIcon::Wifi:
       return freeink::ui::bitmapFromIcon(icon_wifi_24);
     case UIIcon::Library:
+      return freeink::ui::bitmapFromIcon(icon_landmark_24);
+    case UIIcon::Opds:
       return freeink::ui::bitmapFromIcon(icon_lyra_library_24);
     case UIIcon::Hotspot:
       return freeink::ui::bitmapFromIcon(icon_radio_tower_24);

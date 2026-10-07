@@ -25,6 +25,7 @@ class HttpDownloader {
     HTTP_ERROR,
     FILE_ERROR,
     ABORTED,
+    INSUFFICIENT_SPACE,
   };
 
   enum class Transport {
@@ -50,6 +51,19 @@ class HttpDownloader {
     // Borrowed only for this synchronous request. Basic credentials are sent
     // only to this origin; empty keeps the request URL as the credential origin.
     std::string_view authorizationOrigin;
+    // Download to "<destPath>.part" and rename it over destPath only once the
+    // transfer succeeds, so a failed or interrupted download never replaces
+    // (or deletes) an existing file and never leaves a truncated one behind
+    // under the real name.
+    bool stageAsPart = false;
+    // Checks the finished file before it is accepted (and, with stageAsPart,
+    // before it replaces destPath). Returning false fails the download and
+    // removes the file. Catches bodies cut short without a Content-Length.
+    bool (*validate)(const std::string& path) = nullptr;
+    // Once the response length is known, fail with INSUFFICIENT_SPACE before
+    // writing anything if the SD card cannot hold the file. The first check
+    // can scan the whole FAT, so leave it off for small files.
+    bool checkFreeSpace = false;
   };
 
   /**

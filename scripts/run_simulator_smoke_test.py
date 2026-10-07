@@ -35,6 +35,7 @@ THEMES = {
     "lyra_carousel": 4,
     "carousel": 4,
     "dashboard": 6,
+    "cover-grid": 7,
 }
 
 
@@ -44,7 +45,7 @@ def program_path(env_name: str) -> Path:
 
 def build_simulator(env_name: str) -> None:
     print(f"Building {env_name} simulator...", flush=True)
-    proc = subprocess.run(["pio", "run", "-e", env_name], cwd=ROOT)
+    proc = subprocess.run(["pio", "run", "-e", env_name, "-j1"], cwd=ROOT)
     if proc.returncode != 0:
         raise SystemExit(proc.returncode)
 
@@ -77,10 +78,26 @@ def run_smoke(args: argparse.Namespace) -> int:
         temp_root = Path(temp_dir_name)
         simulator_book_path = prepare_fs(temp_root, book)
 
+        if args.font_dir:
+            shutil.copytree(Path(args.font_dir), temp_root / "fs_" / "fonts", dirs_exist_ok=True)
         env = os.environ.copy()
+        if args.font_dir and args.font_family:
+            env["CROSSINK_SIMULATOR_SMOKE_ISOLATED_FONTS"] = "1"
+        if args.font_family:
+            env["CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY"] = args.font_family
         env["CROSSINK_SIMULATOR_SMOKE_TEST"] = "1"
         env["CROSSINK_SIMULATOR_SMOKE_BOOK"] = simulator_book_path
         env["CROSSINK_SIMULATOR_SMOKE_PAGE_TURNS"] = str(args.page_turns)
+        if args.frontlight_sync:
+            env["CROSSINK_SIMULATOR_SMOKE_FRONTLIGHT_SYNC"] = "1"
+        if args.frontlight_layout:
+            env["CROSSINK_SIMULATOR_SMOKE_FRONTLIGHT_LAYOUT"] = "1"
+        if args.frontlight_captures:
+            capture_dir = Path(args.frontlight_captures).resolve()
+            capture_dir.mkdir(parents=True, exist_ok=True)
+            env["CROSSINK_SIMULATOR_SMOKE_FRONTLIGHT_CAPTURES"] = str(capture_dir)
+        if args.home_themes:
+            env["CROSSINK_SIMULATOR_SMOKE_HOME_THEMES"] = "1"
         if args.theme:
             env["CROSSINK_SIMULATOR_SMOKE_THEME"] = str(THEMES[args.theme])
         if args.headless:
@@ -94,7 +111,7 @@ def run_smoke(args: argparse.Namespace) -> int:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            timeout=args.timeout,
+            timeout=args.timeout if args.timeout is not None else (180 if args.frontlight_layout else 45),
         )
 
     print(proc.stdout, end="")
@@ -112,17 +129,30 @@ def run_smoke(args: argparse.Namespace) -> int:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
         return 2
 
+    if args.font_family:
+        tab_change = proc.stdout.find("Reader Menu tab changed after TTF Native selection")
+        reader_return = proc.stdout.find("Reader restored after TTF Native selection", tab_change)
+        if tab_change < 0 or reader_return < 0 or "Loading file:" not in proc.stdout[tab_change:reader_return]:
+            print("Reader did not reload its page after changing TTF options and switching tabs", file=sys.stderr)
+            return 2
+
     return 0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--book", default=str(DEFAULT_BOOK), help="EPUB fixture to copy into the isolated simulator fs_")
-    parser.add_argument("--env", choices=("simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
+    parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
                         help="PlatformIO simulator environment to build and run")
-    parser.add_argument("--timeout", type=int, default=45, help="Seconds before the simulator run is treated as hung")
+    parser.add_argument("--font-dir", help="Font fixtures copied into isolated /fonts")
+    parser.add_argument("--font-family", help="Exercise custom-font size and dictionary lifecycle")
+    parser.add_argument("--timeout", type=int, help="Seconds before the simulator run is treated as hung (default: 45, or 180 for frontlight layout)")
     parser.add_argument("--page-turns", type=int, default=2, help="Number of EPUB page-forward taps to run")
     parser.add_argument("--theme", choices=sorted(THEMES), help="UI theme to use during the smoke test")
+    parser.add_argument("--frontlight-sync", action="store_true", help="Check frontlight sync outside the reader with stats enabled and disabled (X4 Pro)")
+    parser.add_argument("--frontlight-layout", action="store_true", help="Check frontlight drawer bounds and handle taps across scales, orientations and themes (X4 Pro)")
+    parser.add_argument("--frontlight-captures", help="Directory for frontlight layout framebuffer captures (PGM)")
+    parser.add_argument("--home-themes", action="store_true", help="Compare drawer theme changes with fresh Home renders (X4 Pro)")
     parser.add_argument("--no-build", dest="build", action="store_false", help="Run the existing simulator binary")
     parser.add_argument("--window", dest="headless", action="store_false", help="Show the SDL window instead of using dummy video")
     parser.set_defaults(build=True, headless=True)

@@ -53,6 +53,29 @@ TEST(OptionPopup, ConsecutiveTouchSelectionsDoNotLoseSecondRelease) {
   EXPECT_FALSE(popup.isActive());
 }
 
+TEST(OptionPopup, MenuAndSortDecorationsDoNotLeakToNextPopup) {
+  GfxRenderer renderer;
+  OptionPopup popup;
+  const char* options[] = {"First", "Second"};
+
+  popup.show("Sort", options, 2, 0, [](const int) {});
+  popup.setDividerAfterOption(0);
+  popup.render(renderer);
+  EXPECT_EQ(renderer.lineCount(), 1);
+  EXPECT_EQ(renderer.triangleCount(), 0);
+
+  popup.show("Menu", options, 2, 0, [](const int) {});
+  popup.setSelectionArrow(true);
+  popup.render(renderer);
+  EXPECT_EQ(renderer.lineCount(), 1);
+  EXPECT_EQ(renderer.triangleCount(), 1);
+
+  popup.show("Other", options, 2, 0, [](const int) {});
+  popup.render(renderer);
+  EXPECT_EQ(renderer.lineCount(), 1);
+  EXPECT_EQ(renderer.triangleCount(), 1);
+}
+
 TEST(OptionPopup, PowerConfirmSelectionSuppressesItsPowerRelease) {
   GfxRenderer renderer;
   HalGPIO gpio;

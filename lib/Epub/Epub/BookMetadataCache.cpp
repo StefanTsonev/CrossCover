@@ -13,11 +13,14 @@
 
 namespace {
 constexpr uint32_t BOOK_CACHE_MAGIC = 0x425843FF;  // bytes: 0xFF, "CXB"
-constexpr uint8_t BOOK_CACHE_VERSION = 9;          // v9: NFC titles and updated guide start-reference handling
+constexpr uint8_t BOOK_CACHE_VERSION = 10;         // v10: namespace-aware OPF parsing
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
 constexpr size_t METADATA_ARENA_SLAB_BYTES = 4096;
+// Reuse at most 32 KiB of arena-backed targets instead of one per chapter.
+// This transient buffer is too large for the stack and is released after indexing.
+constexpr size_t MAX_SIZE_LOOKUP_TARGETS = 2048;
 // Buffer size for the buildBookBin streams. 3 buffers x 4KB, transient (freed on
 // return); 4KB = 8 SD sectors per transfer, enough to stop the sector-cache thrash.
 constexpr size_t BUILD_IO_BUFFER_SIZE = 4096;
@@ -288,9 +291,9 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   // NOTE: We intentionally skip calling loadAllFileStatSlims() here.
   // For large EPUBs (2000+ chapters), pre-loading all ZIP central directory entries
   // into memory causes OOM crashes on ESP32-C3's limited ~380KB RAM.
-  // Instead, for large books we use a one-pass batch lookup that scans the ZIP
-  // central directory once and matches against spine targets using hash comparison.
-  // This is O(n*log(m)) instead of O(n*m) while avoiding memory exhaustion.
+  // Instead, for large books we use a bounded batch lookup that scans the ZIP
+  // central directory once per chunk and matches spine targets by hash.
+  // Extra scans for huge books trade I/O for bounded target scratch memory.
   // See: https://github.com/crosspoint-reader/crosspoint-reader/issues/134
 
   ArenaVector<uint32_t> spineSizes(metadataArena);
@@ -298,7 +301,8 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
 
   if (spineCount >= LARGE_SPINE_THRESHOLD) {
     ArenaVector<ZipFile::SizeTarget> targets(metadataArena);
-    if (!targets.resize(spineCount) || !spineSizes.resize(spineCount)) {
+    const size_t batchCapacity = std::min<size_t>(spineCount, MAX_SIZE_LOOKUP_TARGETS);
+    if (!targets.resize(batchCapacity) || !spineSizes.resize(spineCount)) {
       LOG_ERR("BMC", "Failed to allocate batch size lookup scratch for %u spine items", spineCount);
       lowMemoryFailure = true;
       zip.close();
@@ -306,6 +310,8 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       return false;
     }
 
+    size_t targetCount = 0;
+    int matched = 0;
     spineIn.seek(0);
     for (int i = 0; i < spineCount; i++) {
       auto entry = readSpineEntryFrom(spineIn);
@@ -315,14 +321,17 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
       t.hash = ZipFile::fnvHash64(path.c_str(), path.size());
       t.len = static_cast<uint16_t>(path.size());
       t.index = static_cast<uint16_t>(i);
-      targets[i] = t;
+      targets[targetCount++] = t;
+      if (targetCount < batchCapacity && i + 1 < spineCount) continue;
+
+      std::sort(targets.begin(), targets.begin() + targetCount,
+                [](const ZipFile::SizeTarget& a, const ZipFile::SizeTarget& b) {
+                  return a.hash < b.hash || (a.hash == b.hash && a.len < b.len);
+                });
+      matched += zip.fillUncompressedSizes(targets.data(), targetCount, spineSizes.data(), spineSizes.size());
+      targetCount = 0;
     }
-
-    std::sort(targets.begin(), targets.end(), [](const ZipFile::SizeTarget& a, const ZipFile::SizeTarget& b) {
-      return a.hash < b.hash || (a.hash == b.hash && a.len < b.len);
-    });
-
-    int matched = zip.fillUncompressedSizes(targets.data(), targets.size(), spineSizes.data(), spineSizes.size());
+    LOG_DBG("BMC", "Batch lookup matched %d/%d spine items", matched, spineCount);
 
     useBatchSizes = true;
   }

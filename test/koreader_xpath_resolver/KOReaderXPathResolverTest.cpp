@@ -99,3 +99,58 @@ TEST(KOReaderXPathResolver, KeepsParagraphOnlyResolutionUnchanged) {
   EXPECT_EQ(ChapterXPathResolver::findXPathForParagraph(epubWith(kNestedFixture), 0, 2),
             "/body/DocFragment[1]/body/div[1]/section[1]/p[2]");
 }
+
+namespace {
+// Inky keeps formatting whitespace around a split chapter's mapped children.
+constexpr char kSplitFixture[] =
+    "<html><body>\n\n <section>\n\n <p>Alpha</p>\n\n <p>Bravo</p>\n\n </section>\n</body></html>";
+}  // namespace
+
+TEST(KOReaderXPathResolver, SplitStartSkipsBodyAndContainerWhitespace) {
+  const auto epub = epubWith(kSplitFixture);
+  for (uint32_t offset = 0; offset <= 6; ++offset) {
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, offset, 2),
+              "/body/DocFragment[1]/body/section[1]/p[1]/text()[1].0")
+        << offset;
+  }
+  EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 0.0f, 2),
+            "/body/DocFragment[1]/body/section[1]/p[1]/text()[1].0");
+}
+
+TEST(KOReaderXPathResolver, SplitInteriorRetainsExactOffset) {
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epubWith(kSplitFixture), 0, 8, 2),
+            "/body/DocFragment[1]/body/section[1]/p[1]/text()[1].2");
+}
+
+TEST(KOReaderXPathResolver, SplitGapAdvancesToNextChild) {
+  const auto epub = epubWith(kSplitFixture);
+  for (uint32_t offset = 11; offset <= 14; ++offset) {
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, offset, 2),
+              "/body/DocFragment[1]/body/section[1]/p[2]/text()[1].0")
+        << offset;
+  }
+}
+
+TEST(KOReaderXPathResolver, SplitEndUsesLastContentCharacter) {
+  const auto epub = epubWith(kSplitFixture);
+  for (uint32_t offset = 19; offset <= 23; ++offset) {
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, offset, 2),
+              "/body/DocFragment[1]/body/section[1]/p[2]/text()[1].4")
+        << offset;
+  }
+  EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f, 2),
+            "/body/DocFragment[1]/body/section[1]/p[2]/text()[1].4");
+  EXPECT_TRUE(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 100, 2).empty());
+}
+
+TEST(KOReaderXPathResolver, SplitWithoutMappedContentDoesNotInventAnchor) {
+  EXPECT_TRUE(ChapterXPathResolver::findXPathForVisibleTextOffset(
+                  epubWith("<html><body>\n<section>\n</section></body></html>"), 0, 0, 2)
+                  .empty());
+}
+
+TEST(KOReaderXPathResolver, SplitDirectChildrenAndNestedInlineText) {
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(
+                epubWith("<html><body>\n<p><em>Hello</em></p></body></html>"), 0, 0, 1),
+            "/body/DocFragment[1]/body/p[1]/em[1]/text()[1].0");
+}

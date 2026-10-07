@@ -32,7 +32,7 @@ Example folder structure: `SDCARD/.dictionaries/Cambridge/*.dict`. Make sure the
    - `/dictionaries/`
 2. If no dictionary has been selected before, the first dictionary in the alphabetical device list is selected automatically.
 3. To choose between multiple dictionaries, open **Settings -> Reader -> Dictionary** on the device and select one from the list.
-4. Per book dictionaries can be set from within the in-reader menu `Book Options -> Settings Gear tab -> Book Dictionary`
+4. Per book dictionaries can be set from within the in-reader menu **Reader Menu > Settings (gear) > Book Dictionary**
 
 ### Preparing Compressed or Large Dictionaries
 
@@ -175,7 +175,8 @@ The history screen shows the 50 most recent entries. The on-disk history is appe
 
 ## IPA Phonetic Characters
 
-Dictionary definitions use the active reader font and size by default. If at least one dictionary is installed, you can set the default dictionary font and size in **Settings > Reader > Font Options**. Books inherit those defaults unless you choose a different font or size in **Book Options > Font Options**. Choose **Use Global** in Book Options to return a book to the global defaults. When the reader uses an SD-card font, you can choose a different dictionary size while keeping that same family; built-in reader fonts continue to use their active size. A saved size with no matching file uses the closest available size from the dictionary family.
+Dictionary definitions use the active reader font and size by default. If at least one dictionary is installed, you can set the default dictionary font and size in **Settings > Reader > Font Options**. Books inherit those defaults unless you choose a different font or size in **Reader Menu > Font > Dictionary Font**. Choose **Use Global** there to return a book to the global dictionary font
+and size defaults. When the reader uses an SD-card font, you can choose a different dictionary size while keeping that same family; built-in reader fonts continue to use their active size. A saved size with no matching file uses the closest available size from the dictionary family.
 
 Only one SD-card font family is loaded at a time: CrossInk temporarily swaps to the dictionary font while a definition is open, then restores the reader font when you close it. If a book's selected dictionary font is missing, the definition temporarily uses the global dictionary font. If that is also unavailable, it falls back to the reader font. The per-book selection is kept so it resumes automatically if you reinstall the family.
 

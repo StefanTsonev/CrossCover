@@ -26,24 +26,33 @@ constexpr fui::ActionId kActionRow = 1;
 }  // namespace
 
 XtcReaderMenuActivity::XtcReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,
-                                             const bool hasChapters, const bool isBookCompleted)
+                                             const bool hasChapters, const bool isBookCompleted,
+                                             const bool globalStatsEnabled, const bool bookStatsEnabled)
     : Activity("XtcReaderMenu", renderer, mappedInput),
       title(std::move(title)),
-      items(buildMenuItems(hasChapters, isBookCompleted, mappedInput.hasTouchHardware())),
+      items(buildMenuItems(hasChapters, isBookCompleted, mappedInput.hasTouchHardware(), globalStatsEnabled,
+                           bookStatsEnabled)),
+      bookStatsEnabled(bookStatsEnabled),
       ui(renderer) {}
 
 std::vector<XtcReaderMenuActivity::MenuItem> XtcReaderMenuActivity::buildMenuItems(const bool hasChapters,
                                                                                    const bool isBookCompleted,
-                                                                                   const bool hasTouch) {
+                                                                                   const bool hasTouch,
+                                                                                   const bool globalStatsEnabled,
+                                                                                   const bool bookStatsEnabled) {
   std::vector<MenuItem> menuItems;
-  menuItems.reserve(6 + (hasTouch ? 1u : 0u));
+  menuItems.reserve(7 + (hasTouch ? 1u : 0u));
   if (hasChapters) {
     menuItems.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   }
-  menuItems.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
+  if (globalStatsEnabled) {
+    menuItems.push_back({MenuAction::TOGGLE_BOOK_STATS_TRACKING, StrId::STR_TRACK_READING_STATS});
+    if (bookStatsEnabled) menuItems.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
+  }
   menuItems.push_back(
       {MenuAction::TOGGLE_COMPLETED, isBookCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
-  menuItems.push_back({MenuAction::DELETE_STATS, StrId::STR_DELETE_BOOK_STATS});
+  if (globalStatsEnabled && bookStatsEnabled)
+    menuItems.push_back({MenuAction::DELETE_STATS, StrId::STR_DELETE_BOOK_STATS});
   menuItems.push_back({MenuAction::DELETE_CACHE, StrId::STR_DELETE_CACHE});
   menuItems.push_back({MenuAction::SEND_NEARBY_BOOK, StrId::STR_SEND_NEARBY_BOOK});
   if (hasTouch) {
@@ -178,7 +187,11 @@ void XtcReaderMenuActivity::refreshListItems() {
     listItems[index].label = I18N.get(items[index].labelId);
     listItems[index].actionValue = static_cast<int16_t>(index);
     if (items[index].action == MenuAction::DISABLE_TOUCHSCREEN) {
-      listItems[index].value = I18N.get(SETTINGS.disableReaderTouchscreen ? StrId::STR_ON : StrId::STR_OFF);
+      listItems[index].toggle = true;
+      listItems[index].toggleChecked = SETTINGS.disableReaderTouchscreen != 0;
+    } else if (items[index].action == MenuAction::TOGGLE_BOOK_STATS_TRACKING) {
+      listItems[index].toggle = true;
+      listItems[index].toggleChecked = bookStatsEnabled;
     }
   }
 }

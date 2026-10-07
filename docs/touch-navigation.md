@@ -41,14 +41,22 @@ a book to start reading it. Tap and hold to open the context menu. Use the back 
 
 ### Swipe up for the Home menu
 
-Swipe up to reveal shortcuts for Recent Books, OPDS Browser, Bookmarks &
+Swipe up to reveal shortcuts for Library, OPDS Browser, Bookmarks &
 Clippings, Reading Stats, and File Transfer. Tap an item to open it; tap
 outside the panel to close the menu.
 
 ### Swipe left to switch recent books
 
-When at least two books are in Recent Books, swipe left anywhere on a one-cover
-Lyra, Dashboard, or Minimal Home screen to switch to the other recent book.
+When at least two books are in your recent reading history, swipe left anywhere
+on a one-cover Lyra, Dashboard, or Minimal Home screen to switch to the other
+recent book.
+
+## Cover Grid Home
+
+On PSRAM devices such as Sticky and X4 Pro, choose **Settings > Display > UI
+Theme > Cover Grid** for a Home screen with the current book and up to six
+additional covers. Tap a cover to open its book. This is a separate Home theme
+from Library's **Recently Opened View** grid option.
 
 ## Other touch navigation
 

@@ -6,6 +6,7 @@
 #include "Arduino.h"
 #include "HalStorage.h"
 #include "Logging.h"
+#include "esp_app_desc.h"
 #include "esp_debug_helpers.h"
 #include "esp_private/esp_cpu_internal.h"
 #include "esp_private/esp_system_attr.h"
@@ -14,6 +15,7 @@
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
 #include "esp_cpu_utils.h"
 #include "esp_memory_utils.h"
+#include "freertos/task.h"
 #include "xtensa/corebits.h"
 #endif
 
@@ -23,8 +25,10 @@
 
 RTC_NOINIT_ATTR char panicMessage[256];
 RTC_NOINIT_ATTR HalSystem::StackFrame panicStack[MAX_PANIC_STACK_DEPTH];
+#if CONFIG_IDF_TARGET_ARCH_RISCV
 RTC_NOINIT_ATTR uint32_t panicBacktrace[MAX_PANIC_BACKTRACE_DEPTH];
 RTC_NOINIT_ATTR volatile size_t panicBacktraceDepth;
+#endif
 
 #if CONFIG_IDF_TARGET_ARCH_RISCV
 // Preserve the exception-frame values that identify a C3 panic. Unlike the raw
@@ -43,9 +47,10 @@ struct RiscvPanicRegisters {
 RTC_NOINIT_ATTR RiscvPanicRegisters panicRiscvRegisters;
 #endif
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
-// Preserve the X4 Pro/Sticky exception details alongside their existing
-// symbolizable backtrace. EXCVADDR identifies the bad address for memory
-// access faults, which the backtrace alone cannot show.
+constexpr size_t MAX_PANIC_CORES = 2;
+constexpr size_t PANIC_TASK_NAME_BYTES = 16;
+// Keep each S3 core's register dump and backtrace separate. ESP-IDF prints the
+// primary panic core first, then any other core that has an exception frame.
 struct XtensaPanicRegisters {
   uint32_t pc;
   uint32_t a0;
@@ -54,8 +59,13 @@ struct XtensaPanicRegisters {
   uint32_t exccause;
   uint32_t excvaddr;
   uint32_t captured;
+  char taskName[PANIC_TASK_NAME_BYTES];
 };
-RTC_NOINIT_ATTR XtensaPanicRegisters panicXtensaRegisters;
+RTC_NOINIT_ATTR XtensaPanicRegisters panicXtensaRegisters[MAX_PANIC_CORES];
+RTC_NOINIT_ATTR uint32_t panicXtensaBacktrace[MAX_PANIC_CORES][MAX_PANIC_BACKTRACE_DEPTH];
+RTC_NOINIT_ATTR size_t panicXtensaBacktraceDepth[MAX_PANIC_CORES];
+RTC_NOINIT_ATTR int32_t panicPrimaryCore;
+RTC_NOINIT_ATTR uint32_t panicCoreCaptureCount;
 #endif
 // RTC_NOINIT is uninitialized on cold boot, so only this exact marker proves a
 // panic diagnostic was captured before the reset.
@@ -69,15 +79,46 @@ void __real_panic_print_backtrace(const void* frame, int core);
 static DRAM_ATTR const char PANIC_REASON_UNKNOWN[] = "(unknown panic reason)";
 
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
-void IRAM_ATTR captureXtensaPanicBacktrace(const void* frame) {
+void IRAM_ATTR resetXtensaPanicCapture() {
+  for (size_t core = 0; core < MAX_PANIC_CORES; ++core) {
+    panicXtensaRegisters[core].captured = 0;
+    panicXtensaBacktraceDepth[core] = 0;
+  }
+  panicPrimaryCore = -1;
+}
+
+void IRAM_ATTR captureXtensaPanicBacktrace(const void* frame, const int core) {
+  if (core < 0 || static_cast<size_t>(core) >= MAX_PANIC_CORES) return;
+  // RTC_NOINIT may contain arbitrary bytes if this is the first boot's panic.
+  if (panicCaptureMarker != PANIC_CAPTURE_MAGIC) {
+    panicCoreCaptureCount = 0;
+    panicMessage[0] = '\0';
+  }
+  if (panicCoreCaptureCount == 0) {
+    resetXtensaPanicCapture();
+    panicPrimaryCore = core;
+  }
+  ++panicCoreCaptureCount;
+
   const auto* exceptionFrame = static_cast<const XtExcFrame*>(frame);
-  panicXtensaRegisters.pc = exceptionFrame->pc;
-  panicXtensaRegisters.a0 = exceptionFrame->a0;
-  panicXtensaRegisters.a1 = exceptionFrame->a1;
-  panicXtensaRegisters.ps = exceptionFrame->ps;
-  panicXtensaRegisters.exccause = exceptionFrame->exccause;
-  panicXtensaRegisters.excvaddr = exceptionFrame->excvaddr;
-  panicXtensaRegisters.captured = PANIC_CAPTURE_MAGIC;
+  auto& registers = panicXtensaRegisters[core];
+  registers.pc = exceptionFrame->pc;
+  registers.a0 = exceptionFrame->a0;
+  registers.a1 = exceptionFrame->a1;
+  registers.ps = exceptionFrame->ps;
+  registers.exccause = exceptionFrame->exccause;
+  registers.excvaddr = exceptionFrame->excvaddr;
+  registers.taskName[0] = '\0';
+  const TaskHandle_t task = xTaskGetCurrentTaskHandleForCore(core);
+  if (task && esp_ptr_in_dram(task)) {
+    const char* name = pcTaskGetName(task);
+    if (name && esp_ptr_byte_accessible(name)) {
+      size_t i = 0;
+      for (; i < sizeof(registers.taskName) - 1 && name[i]; ++i) registers.taskName[i] = name[i];
+      registers.taskName[i] = '\0';
+    }
+  }
+  registers.captured = PANIC_CAPTURE_MAGIC;
 
   esp_backtrace_frame_t backtraceFrame = {
       .pc = static_cast<uint32_t>(exceptionFrame->pc),
@@ -88,7 +129,7 @@ void IRAM_ATTR captureXtensaPanicBacktrace(const void* frame) {
 
   size_t depth = 0;
   uint32_t pc = esp_cpu_process_stack_pc(backtraceFrame.pc);
-  panicBacktrace[depth++] = pc;
+  panicXtensaBacktrace[core][depth++] = pc;
 
   bool corrupted =
       !esp_stack_ptr_is_sane(backtraceFrame.sp) ||
@@ -100,11 +141,11 @@ void IRAM_ATTR captureXtensaPanicBacktrace(const void* frame) {
 
     pc = esp_cpu_process_stack_pc(backtraceFrame.pc);
     if (esp_ptr_executable(reinterpret_cast<const void*>(pc))) {
-      panicBacktrace[depth++] = pc;
+      panicXtensaBacktrace[core][depth++] = pc;
     }
   }
 
-  panicBacktraceDepth = depth;
+  panicXtensaBacktraceDepth[core] = depth;
   panicCaptureMarker = PANIC_CAPTURE_MAGIC;
 }
 #endif
@@ -124,6 +165,12 @@ void IRAM_ATTR captureRiscvPanicRegisters(const void* frame) {
 #endif
 
 void IRAM_ATTR __wrap_panic_abort(const char* message) {
+#if CONFIG_IDF_TARGET_ARCH_XTENSA
+  if (panicCaptureMarker != PANIC_CAPTURE_MAGIC) {
+    panicCoreCaptureCount = 0;
+    resetXtensaPanicCapture();
+  }
+#endif
   if (!message) message = PANIC_REASON_UNKNOWN;
   // IRAM-safe bounded copy (strncpy is not IRAM-safe in panic context)
   int i = 0;
@@ -143,7 +190,7 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
   }
 
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
-  captureXtensaPanicBacktrace(frame);
+  captureXtensaPanicBacktrace(frame, core);
   __real_panic_print_backtrace(frame, core);
   return;
 #elif !__riscv
@@ -193,6 +240,11 @@ void begin() {
   if (!isRebootFromPanic()) {
     clearPanic();
   } else {
+#if CONFIG_IDF_TARGET_ARCH_XTENSA
+    // The saved per-core data remains available for the report below. A second
+    // panic during this boot must start a fresh capture, even if SD writing fails.
+    panicCoreCaptureCount = 0;
+#endif
     // Panic reboot: preserve logs and panic info, but clamp logHead in case the
     // panic occurred before begin() ever ran (e.g. in a static constructor).
     // If logHead was out of range, logMessages is also garbage — clear it so
@@ -230,12 +282,13 @@ void clearPanic() {
   for (size_t i = 0; i < MAX_PANIC_STACK_DEPTH; i++) {
     panicStack[i].sp = 0;
   }
-  panicBacktraceDepth = 0;
 #if CONFIG_IDF_TARGET_ARCH_RISCV
+  panicBacktraceDepth = 0;
   panicRiscvRegisters.captured = 0;
 #endif
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
-  panicXtensaRegisters.captured = 0;
+  resetXtensaPanicCapture();
+  panicCoreCaptureCount = 0;
 #endif
   clearLastLogs();
 }
@@ -248,7 +301,11 @@ std::string getPanicInfo(bool full) {
 
     info += "CrossCover version: " CROSSINK_VERSION;
     info += "\nCrossCover device type: " CROSSINK_FIRMWARE_DEVICE_TYPE;
-    info += "\n\nPanic reason: " + std::string(panicMessage);
+    char elfSha[65] = {};
+    esp_app_get_elf_sha256(elfSha, sizeof(elfSha));
+    info += "\nFirmware ELF SHA256: " + std::string(elfSha);
+    info += "\n\nPanic reason: ";
+    info += panicMessage[0] ? panicMessage : "(not captured; see exception registers)";
     info += "\n\nLast logs:\n" + getLastLogs();
     auto toHex = [](uint32_t value) {
       char buffer[9];
@@ -268,14 +325,28 @@ std::string getPanicInfo(bool full) {
     }
 #endif
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
-    if (panicXtensaRegisters.captured == PANIC_CAPTURE_MAGIC) {
-      info += "\n\nXtensa exception registers:\n";
-      info += "PC (faulting instruction): 0x" + toHex(panicXtensaRegisters.pc);
-      info += "A0 (return address): 0x" + toHex(panicXtensaRegisters.a0);
-      info += "A1 (stack pointer): 0x" + toHex(panicXtensaRegisters.a1);
-      info += "PS (processor state): 0x" + toHex(panicXtensaRegisters.ps);
-      info += "EXCCAUSE: 0x" + toHex(panicXtensaRegisters.exccause);
-      info += "\nEXCVADDR (fault address): 0x" + toHex(panicXtensaRegisters.excvaddr);
+    if (panicPrimaryCore >= 0 && static_cast<size_t>(panicPrimaryCore) < MAX_PANIC_CORES) {
+      info += "\nPrimary panic core: " + std::to_string(panicPrimaryCore);
+    }
+    for (size_t core = 0; core < MAX_PANIC_CORES; ++core) {
+      const auto& registers = panicXtensaRegisters[core];
+      if (registers.captured != PANIC_CAPTURE_MAGIC) continue;
+      info += "\n\nCore " + std::to_string(core);
+      if (static_cast<int32_t>(core) == panicPrimaryCore) info += " (primary)";
+      info += " task: ";
+      info += registers.taskName[0] ? registers.taskName : "(unavailable)";
+      info += "\nPC (instruction): 0x" + toHex(registers.pc);
+      info += "\nA0 (return address): 0x" + toHex(registers.a0);
+      info += "\nA1 (stack pointer): 0x" + toHex(registers.a1);
+      info += "\nPS (processor state): 0x" + toHex(registers.ps);
+      info += "\nEXCCAUSE: 0x" + toHex(registers.exccause);
+      info += "\nEXCVADDR (fault address): 0x" + toHex(registers.excvaddr);
+      const size_t depth =
+          panicXtensaBacktraceDepth[core] <= MAX_PANIC_BACKTRACE_DEPTH ? panicXtensaBacktraceDepth[core] : 0;
+      if (depth > 0) {
+        info += "\nBacktrace:\n";
+        for (size_t i = 0; i < depth; ++i) info += "0x" + toHex(panicXtensaBacktrace[core][i]) + "\n";
+      }
     }
 #endif
     if (panicStack[0].sp != 0) {
@@ -292,6 +363,7 @@ std::string getPanicInfo(bool full) {
       }
     }
 
+#if CONFIG_IDF_TARGET_ARCH_RISCV
     const size_t backtraceDepth = panicBacktraceDepth <= MAX_PANIC_BACKTRACE_DEPTH ? panicBacktraceDepth : 0;
     if (backtraceDepth > 0) {
       info += "\nStack trace:\n";
@@ -299,6 +371,7 @@ std::string getPanicInfo(bool full) {
         info += "0x" + toHex(panicBacktrace[i]) + "\n";
       }
     }
+#endif
 
     return info;
   }

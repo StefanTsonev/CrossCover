@@ -1,3 +1,4 @@
+let ttfSupported = false;
 function formatSize(bytes) {
       if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
       if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
@@ -9,6 +10,7 @@ function formatSize(bytes) {
       try {
         const res = await fetch('/api/fonts');
         const data = await res.json();
+        ttfSupported = data.ttfSupported === true;
         // Build rows with DOM APIs and textContent so on-device family names
         // (which can contain arbitrary characters) cannot break markup or
         // execute script via innerHTML / inline onclick interpolation.
@@ -85,6 +87,7 @@ function formatSize(bytes) {
     // Derive family name from a .cpfont filename: take everything before the
     // last '-' or '_' (that separator precedes the size suffix, e.g. Bookerly_12.cpfont).
     function familyFromFilename(name) {
+      if (/\.ttf$/i.test(name)) return name.replace(/\.ttf$/i, '').replace(/[-_ ]?(Regular|BoldItalic|Bold|Italic)$/i, '');
       const stem = name.replace(/\.cpfont$/i, '');
       const cut = Math.max(stem.lastIndexOf('-'), stem.lastIndexOf('_'));
       return cut > 0 ? stem.slice(0, cut) : stem;
@@ -96,14 +99,14 @@ function formatSize(bytes) {
     }
 
     function cpfontFilesOnly(fileList) {
-      return Array.from(fileList).filter(f => /\.cpfont$/i.test(f.name));
+      return Array.from(fileList).filter(f => (/\.cpfont$/i.test(f.name) || (ttfSupported && /\.ttf$/i.test(f.name))));
     }
 
     document.getElementById('fontFiles').addEventListener('change', function() {
       const info = document.getElementById('pickedInfo');
       const files = cpfontFilesOnly(this.files);
       if (files.length === 0) {
-        info.textContent = 'No .cpfont files found in the selected folder.';
+        info.textContent = 'No .cpfont or .ttf files found in the selected folder.';
         return;
       }
       const family = sanitizeFamily(familyFromFilename(files[0].name));
@@ -118,7 +121,7 @@ function formatSize(bytes) {
       if (files.length === 0) {
         status.className = 'status-err';
         status.style.display = 'block';
-        status.textContent = 'No .cpfont files selected.';
+        status.textContent = 'No .cpfont or .ttf files selected.';
         return;
       }
 

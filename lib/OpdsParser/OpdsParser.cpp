@@ -13,6 +13,52 @@ constexpr size_t MAX_ID_CHARS = 128;
 constexpr size_t MAX_HREF_CHARS = 768;
 constexpr size_t MAX_SEARCH_TEMPLATE_CHARS = 768;
 constexpr size_t MAX_PAGE_URL_CHARS = 768;
+// Only short "<N> books" summaries carry a count; one char past the limit
+// marks a longer (descriptive) summary as not-a-count.
+constexpr size_t MAX_SUMMARY_COUNT_CHARS = 32;
+
+bool isSpace(const char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+bool isDigit(const char c) { return c >= '0' && c <= '9'; }
+
+// Consumes a non-negative decimal integer at `p`; false on no digits or overflow.
+bool consumeCount(const char*& p, int32_t& out) {
+  if (!isDigit(*p)) return false;
+  int32_t value = 0;
+  for (; isDigit(*p); ++p) {
+    if (value > (INT32_MAX - (*p - '0')) / 10) return false;
+    value = value * 10 + (*p - '0');
+  }
+  out = value;
+  return true;
+}
+
+// thr:count attribute value: digits only; -1 otherwise.
+int32_t parseAttributeCount(const char* text) {
+  int32_t value = -1;
+  if (!text || !consumeCount(text, value) || *text != '\0') return -1;
+  return value;
+}
+
+// "<N> book(s)" summaries such as Mayberry's "12713 books"; a descriptive
+// sentence that happens to start with a number yields -1.
+int32_t parseSummaryCount(const std::string& summary) {
+  if (summary.size() > MAX_SUMMARY_COUNT_CHARS) return -1;
+  const char* p = summary.c_str();
+  while (isSpace(*p)) ++p;
+  int32_t value = -1;
+  if (!consumeCount(p, value) || (*p != ' ' && *p != '\t')) return -1;
+  while (isSpace(*p)) ++p;
+  // Only the known catalog summary form; arbitrary "N words" may be a description.
+  if (strncmp(p, "books", 5) == 0) {
+    p += 5;
+  } else if (strncmp(p, "book", 4) == 0) {
+    p += 4;
+  } else {
+    return -1;
+  }
+  while (isSpace(*p)) ++p;
+  return *p == '\0' ? value : -1;
+}
 }  // namespace
 
 OpdsParser::OpdsParser(OpdsEntry* entries, const size_t entryCapacity)
@@ -109,7 +155,7 @@ void OpdsParser::clear() {
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
   currentText.clear();
-  inEntry = inTitle = inAuthor = inAuthorName = inId = false;
+  inEntry = inTitle = inAuthor = inAuthorName = inId = inSummary = false;
   errorOccured = !entries || entryCapacity == 0;
   errorReason = errorOccured ? OpdsParserError::NO_ENTRY_BUFFER : OpdsParserError::NONE;
   resetXmlParser();
@@ -195,6 +241,15 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
           if (self->currentEntry.type != OpdsEntryType::BOOK) {
             self->currentEntry.type = OpdsEntryType::NAVIGATION;
             assignBounded(self->currentEntry.href, href, MAX_HREF_CHARS);
+            // Atom threading extension: thr:count="N" (any namespace prefix).
+            for (int i = 0; atts[i]; i += 2) {
+              const char* colon = strrchr(atts[i], ':');
+              if (colon && strcmp(colon + 1, "count") == 0) {
+                const int32_t count = parseAttributeCount(atts[i + 1]);
+                if (count >= 0) self->currentEntry.count = count;
+                break;
+              }
+            }
           }
         }
       }
@@ -220,6 +275,9 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
   } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
     self->inId = true;
     self->currentText.clear();
+  } else if (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr) {
+    self->inSummary = true;
+    self->currentText.clear();
   }
 }
 
@@ -228,6 +286,7 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
 
   if (strcmp(name, "entry") == 0 || strstr(name, ":entry") != nullptr) {
     if (!self->currentEntry.title.empty() && !self->currentEntry.href.empty()) {
+      if (self->currentEntry.type != OpdsEntryType::NAVIGATION) self->currentEntry.count = -1;
       if (self->entryCount < self->entryCapacity) {
         self->entries[self->entryCount++] = std::move(self->currentEntry);
       } else {
@@ -242,11 +301,17 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
     } else if (strcmp(name, "author") == 0 || strstr(name, ":author") != nullptr) {
       self->inAuthor = false;
     } else if (self->inAuthorName && (strcmp(name, "name") == 0 || strstr(name, ":name") != nullptr)) {
-      self->currentEntry.author = std::move(self->currentText);
+      if (self->currentEntry.author.empty()) self->currentEntry.author = std::move(self->currentText);
       self->inAuthorName = false;
     } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
       if (self->inId) self->currentEntry.id = std::move(self->currentText);
       self->inId = false;
+    } else if (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr) {
+      // thr:count on the link wins over a summary count.
+      if (self->inSummary && self->currentEntry.count < 0) {
+        self->currentEntry.count = parseSummaryCount(self->currentText);
+      }
+      self->inSummary = false;
     }
   }
 }
@@ -259,5 +324,13 @@ void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const 
     appendBounded(self->currentText, s, len, MAX_AUTHOR_CHARS);
   } else if (self->inId) {
     appendBounded(self->currentText, s, len, MAX_ID_CHARS);
+  } else if (self->inSummary) {
+    // Drop leading whitespace and collapse runs, so an indented "\n    12713 books\n  "
+    // still fits the count-sized buffer while a real sentence still overflows it.
+    std::string& text = self->currentText;
+    for (int i = 0; i < len && text.size() <= MAX_SUMMARY_COUNT_CHARS; ++i) {
+      if (isSpace(s[i]) && (text.empty() || isSpace(text.back()))) continue;
+      text.push_back(s[i]);
+    }
   }
 }

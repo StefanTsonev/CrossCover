@@ -2,9 +2,11 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -65,13 +67,34 @@ void UITheme::reload() {
   setTheme(themeType);
 }
 
+bool UITheme::supportsCoverGrid() {
+#if defined(SIMULATOR)
+  return
+#if defined(SIMULATOR_DEVICE_STICKY) || defined(SIMULATOR_DEVICE_X4_PRO) || defined(SIMULATOR_DEVICE_X4_CLASSIC)
+      true;
+#else
+      false;
+#endif
+#else
+  return psramHeapAvailable();
+#endif
+}
+
+bool UITheme::hasCoverGridHome() {
+  return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::COVER_GRID && supportsCoverGrid();
+}
+
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
+  if (type == CrossPointSettings::UI_THEME::COVER_GRID && !supportsCoverGrid()) {
+    type = CrossPointSettings::UI_THEME::LYRA;
+  }
   switch (type) {
     case CrossPointSettings::UI_THEME::CLASSIC:
       LOG_DBG("UI", "Using Classic theme");
       currentTheme = std::make_unique<BaseTheme>();
       currentMetrics = &BaseMetrics::values;
       break;
+    case CrossPointSettings::UI_THEME::COVER_GRID:
     case CrossPointSettings::UI_THEME::LYRA:
       LOG_DBG("UI", "Using Lyra theme");
       currentTheme = std::make_unique<LyraTheme>();
@@ -195,7 +218,8 @@ std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int cove
   return getCoverThumbPath(coverBmpPath, coverWidth, coverHeight);
 }
 
-std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int width, int height) {
+std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int width, int height,
+                                       bool allowLegacyFallback) {
   if (width <= 0 || height <= 0) {
     return "";
   }
@@ -230,7 +254,7 @@ std::string UITheme::getCoverThumbPath(const std::string& coverBmpPath, int widt
       std::string legacyPath = thumbPath;
       legacyPath.replace(pos, kHeightPlaceholderLength, std::to_string(height));
       thumbPath.replace(pos, kHeightPlaceholderLength, std::to_string(width) + "x" + std::to_string(height));
-      if (!Storage.exists(thumbPath.c_str()) && Storage.exists(legacyPath.c_str())) {
+      if (allowLegacyFallback && !Storage.exists(thumbPath.c_str()) && Storage.exists(legacyPath.c_str())) {
         return legacyPath;
       }
     }
@@ -254,19 +278,30 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
   return File;
 }
 
-int UITheme::getStatusBarHeight() {
+int UITheme::getStatusBarHeight() { return getReaderStatusBarHeight(ReaderStatusBarPosition::Bottom); }
+
+int UITheme::getReaderStatusBarHeight(const ReaderStatusBarPosition position) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const auto statusBar = SETTINGS.statusBarSpec();
-  // Reserve the clock lane independently of the current board so orientation
-  // and layout do not change when the same settings are used on another device.
-  return (statusBar.textLaneVisible(true) ? metrics.statusBarVerticalMargin : 0) +
-         (statusBar.showsProgressBar() ? statusBar.progressBarHeightPx + metrics.progressBarMarginTop : 0);
+  const auto config = SETTINGS.readerStatusBar(position);
+  const bool hasText = config.hasTextItems(halClock.isAvailable());
+  const int progressSpace = config.progressBar != CrossPointSettings::HIDE_PROGRESS
+                                ? static_cast<int>((config.progressBarThickness + 1) * 2) + metrics.progressBarMarginTop
+                                : 0;
+  return readerStatusBarTotalHeight(position, hasText, progressSpace, metrics.statusBarVerticalMargin);
 }
 
-int UITheme::getProgressBarHeight() {
+int UITheme::getProgressBarHeight() { return getReaderProgressBarHeight(ReaderStatusBarPosition::Bottom); }
+
+int UITheme::getReaderProgressBarHeight(const ReaderStatusBarPosition position) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
-  const auto statusBar = SETTINGS.statusBarSpec();
-  return statusBar.showsProgressBar() ? statusBar.progressBarHeightPx + metrics.progressBarMarginTop : 0;
+  const auto config = SETTINGS.readerStatusBar(position);
+  return config.progressBar != CrossPointSettings::HIDE_PROGRESS
+             ? static_cast<int>((config.progressBarThickness + 1) * 2) + metrics.progressBarMarginTop
+             : 0;
+}
+
+int UITheme::getTopStatusBarY(const GfxRenderer& renderer) {
+  return getInstance().getMetrics().topPadding + getTopStatusBarInset(renderer);
 }
 
 int UITheme::getTopStatusBarInset(const GfxRenderer& renderer) {

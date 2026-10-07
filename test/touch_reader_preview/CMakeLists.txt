@@ -5,6 +5,7 @@ add_executable(TouchReaderPreviewModelTest
 target_include_directories(TouchReaderPreviewModelTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/src/activities/reader
+  ${REPO_ROOT}/include
 )
 
 target_link_libraries(TouchReaderPreviewModelTest PRIVATE
@@ -13,3 +14,7 @@ target_link_libraries(TouchReaderPreviewModelTest PRIVATE
 )
 
 gtest_discover_tests(TouchReaderPreviewModelTest)
+
+target_compile_definitions(TouchReaderPreviewModelTest PRIVATE
+  SIMULATOR CROSSINK_APP_CAP_TOUCH=0 CROSSINK_APP_CAP_USB_DRIVE=0
+)

@@ -519,44 +519,13 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
       dotX += kDotSize + kDotGap;
     }
 
-    // Minimal-style reading progress footer below the cover.
-    constexpr int footerLabelFontId = UI_10_FONT_ID;
-    const int footerLabelLineHeight = renderer.getLineHeight(footerLabelFontId);
-    const bool hasStats = (stats != nullptr && stats->sessionCount > 0);
-    const bool hasProgress = progressPercent >= 0.0f;
-    int infoY = dotsY + kDotSize + kFooterTopGap;
-    const int footerMaxWidth = std::max(0, screenW - 2 * LyraCarouselMetrics::values.contentSidePadding);
-    const int footerWidth = std::min(footerMaxWidth, centerCoverRect.width);
-    const int footerX = centerCoverRect.x + (centerCoverRect.width - footerWidth) / 2;
-
-    if (hasStats) {
-      char buf[48];
-      formatCompactReadingTime(stats->totalReadingSeconds, buf, sizeof(buf));
-      const auto timeLabel = renderer.truncatedText(footerLabelFontId, buf, footerWidth, EpdFontFamily::REGULAR);
-      renderer.drawText(footerLabelFontId, footerX, infoY, timeLabel.c_str(), true, EpdFontFamily::REGULAR);
-    }
-
-    if (hasProgress) {
-      const int progressBarY = infoY + (hasStats ? footerLabelLineHeight + kFooterLabelToBarGap : 0);
-      const float clampedProgress = std::clamp(progressPercent, 0.0f, 100.0f);
-      const int filledWidth = std::clamp(static_cast<int>((clampedProgress / 100.0f) * footerWidth), 0, footerWidth);
-      char progressLabel[16];
-      snprintf(progressLabel, sizeof(progressLabel), "%.0f%%", clampedProgress);
-      renderer.fillRectDither(footerX, progressBarY, footerWidth, kFooterProgressBarHeight, Color::LightGray);
-      if (filledWidth > 0) {
-        renderer.fillRect(footerX, progressBarY, filledWidth, kFooterProgressBarHeight, true);
-      }
-      const int progressLabelW = renderer.getTextWidth(footerLabelFontId, progressLabel, EpdFontFamily::REGULAR);
-      const int progressLabelY = progressBarY + kFooterProgressBarHeight + kFooterPercentTopGap;
-      renderer.drawText(footerLabelFontId, footerX + footerWidth - progressLabelW, progressLabelY, progressLabel, true,
-                        EpdFontFamily::REGULAR);
-    }
-
     coverBufferStored = storeCoverBuffer();
     coverRendered = coverBufferStored;
   } else if (lastCenterCoverRect.width <= 0 || lastCenterCoverRect.height <= 0) {
     lastCenterCoverRect = shrinkCenterCoverRect(centerCoverSlotRect);
   }
+
+  drawReadingProgress(renderer, rect, recentBooks, stats, progressPercent);
 
   // Always outline the centre cover at its own edge (white ring sits outside the black line);
   // thicker when the carousel row is active
@@ -564,6 +533,48 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
   const int outlineW = inCarouselRow ? kSelectionLineW : kThinOutlineW;
   renderer.drawRoundedRect(lastCenterCoverRect.x, lastCenterCoverRect.y, lastCenterCoverRect.width,
                            lastCenterCoverRect.height, outlineW, kCornerRadius, true);
+}
+
+void LyraCarouselTheme::drawReadingProgress(GfxRenderer& renderer, Rect rect,
+                                            const std::vector<RecentBook>& recentBooks, const BookReadingStats* stats,
+                                            float progressPercent) const {
+  if (recentBooks.empty()) return;
+  const int screenW = renderer.getScreenWidth();
+  const Rect centerCoverSlotRect = computeCenterCoverSlotRect(renderer, rect, recentBooks);
+  const Rect centerCoverRect = shrinkCenterCoverRect(centerCoverSlotRect);
+  const int dotsY = centerCoverSlotRect.y + centerCoverSlotRect.height + 8;
+  // Minimal-style reading progress footer below the cover.
+  constexpr int footerLabelFontId = UI_10_FONT_ID;
+  const int footerLabelLineHeight = renderer.getLineHeight(footerLabelFontId);
+  const bool hasStats = (stats != nullptr && stats->sessionCount > 0);
+  const bool hasProgress = progressPercent >= 0.0f;
+  int infoY = dotsY + kDotSize + kFooterTopGap;
+  const int footerMaxWidth = std::max(0, screenW - 2 * LyraCarouselMetrics::values.contentSidePadding);
+  const int footerWidth = std::min(footerMaxWidth, centerCoverRect.width);
+  const int footerX = centerCoverRect.x + (centerCoverRect.width - footerWidth) / 2;
+
+  if (hasStats) {
+    char buf[48];
+    formatCompactReadingTime(stats->totalReadingSeconds, buf, sizeof(buf));
+    const auto timeLabel = renderer.truncatedText(footerLabelFontId, buf, footerWidth, EpdFontFamily::REGULAR);
+    renderer.drawText(footerLabelFontId, footerX, infoY, timeLabel.c_str(), true, EpdFontFamily::REGULAR);
+  }
+
+  if (hasProgress) {
+    const int progressBarY = infoY + (hasStats ? footerLabelLineHeight + kFooterLabelToBarGap : 0);
+    const float clampedProgress = std::clamp(progressPercent, 0.0f, 100.0f);
+    const int filledWidth = std::clamp(static_cast<int>((clampedProgress / 100.0f) * footerWidth), 0, footerWidth);
+    char progressLabel[16];
+    snprintf(progressLabel, sizeof(progressLabel), "%.0f%%", clampedProgress);
+    renderer.fillRectDither(footerX, progressBarY, footerWidth, kFooterProgressBarHeight, Color::LightGray);
+    if (filledWidth > 0) {
+      renderer.fillRect(footerX, progressBarY, filledWidth, kFooterProgressBarHeight, true);
+    }
+    const int progressLabelW = renderer.getTextWidth(footerLabelFontId, progressLabel, EpdFontFamily::REGULAR);
+    const int progressLabelY = progressBarY + kFooterProgressBarHeight + kFooterPercentTopGap;
+    renderer.drawText(footerLabelFontId, footerX + footerWidth - progressLabelW, progressLabelY, progressLabel, true,
+                      EpdFontFamily::REGULAR);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -632,46 +643,6 @@ Rect LyraCarouselTheme::buttonMenuTouchRect(const GfxRenderer& renderer, const i
   if (buttonCount <= 0) return Rect{0, 0, 0, 0};
   const MenuLayoutMetrics metrics = computeMenuLayout(renderer, buttonCount);
   return Rect{0, metrics.labelY, renderer.getScreenWidth(), metrics.rowY + metrics.tileH - metrics.labelY};
-}
-
-void LyraCarouselTheme::drawButtonMenuSelectionOverlay(const GfxRenderer& renderer, int buttonCount, int selectedIndex,
-                                                       const std::function<const char*(int index)>& buttonLabel,
-                                                       const std::function<UIIcon(int index)>& rowIcon) const {
-  if (buttonCount <= 0 || selectedIndex < 0 || selectedIndex >= buttonCount) return;
-
-  const MenuLayoutMetrics metrics = computeMenuLayout(renderer, buttonCount);
-  registerButtonMenuTouchTargets(renderer, buttonCount);
-
-  const int tileX = selectedIndex * metrics.tileW;
-  const int iconX = tileX + (metrics.tileW - kMenuIconSize) / 2;
-  const int iconY = metrics.rowY + kMenuIconPad;
-  const int highlightSize = kMenuIconSize + 2 * kHighlightPad;
-  const int highlightY = metrics.rowY + (metrics.tileH - highlightSize) / 2;
-
-  renderer.fillRoundedRect(iconX - kHighlightPad, highlightY, highlightSize, highlightSize, kCornerRadius,
-                           Color::Black);
-
-  if (rowIcon != nullptr) {
-    const UIIcon icon = rowIcon(selectedIndex);
-    if (icon == UIIcon::BookmarkIcon) {
-      drawMenuBookmarkIcon(renderer, iconX, iconY, true);
-    } else {
-      const freeink::Icon* bmp = iconForName(icon, kMenuIconSize);
-      if (bmp != nullptr) {
-        drawLucideIcon(renderer, *bmp, iconX, iconY, false);
-      }
-    }
-  }
-
-  renderer.fillRect(0, metrics.labelY, renderer.getScreenWidth(), metrics.labelLineHeight, false);
-  if (buttonLabel != nullptr) {
-    char centeredLabel[kMenuLabelBufferSize];
-    fitMenuLabel(renderer, buttonLabel(selectedIndex), renderer.getScreenWidth() - 40, centeredLabel,
-                 sizeof(centeredLabel));
-    const int labelWidth = renderer.getTextWidth(kMenuLabelFontId, centeredLabel, EpdFontFamily::REGULAR);
-    renderer.drawText(kMenuLabelFontId, (renderer.getScreenWidth() - labelWidth) / 2, metrics.labelY + 2, centeredLabel,
-                      true, EpdFontFamily::REGULAR);
-  }
 }
 
 // ---------------------------------------------------------------------------

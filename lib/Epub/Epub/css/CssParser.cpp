@@ -9,6 +9,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstring>
 #include <string_view>
 
@@ -66,11 +67,11 @@ constexpr size_t CSS_RULE_ARENA_EXTRA_BYTES = 1024;
 // Maximum length for a single selector string
 // Prevents parsing of extremely long or malformed selectors
 constexpr size_t MAX_SELECTOR_LENGTH = 256;
-constexpr size_t CSS_LENGTH_FIELD_COUNT = 11;
+constexpr size_t CSS_LENGTH_FIELD_COUNT = 12;
 constexpr size_t CSS_LENGTH_BYTES = sizeof(float) + sizeof(uint8_t);
 constexpr size_t CSS_FIXED_STYLE_BYTES = 5 * sizeof(uint8_t) + (CSS_LENGTH_FIELD_COUNT * CSS_LENGTH_BYTES) +
                                          4 * sizeof(uint8_t) + 3 * sizeof(uint8_t) + sizeof(uint32_t);
-static_assert(CSS_FIXED_STYLE_BYTES == 71,
+static_assert(CSS_FIXED_STYLE_BYTES == 76,
               "CssStyle cache payload changed; update read/writeCssStylePayload and bump CSS_CACHE_VERSION");
 
 // Check if character is CSS whitespace
@@ -421,6 +422,48 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
   if (iequalsAscii(name, "text-align")) {
     style.textAlign = interpretAlignment(value);
     style.defined.textAlign = 1;
+  } else if (iequalsAscii(name, "font-size")) {
+    const auto sizeValue = trimCssWhitespace(stripTrailingImportant(value));
+    CssLength size;
+    bool valid = false;
+    if (iequalsAscii(sizeValue, "inherit") || iequalsAscii(sizeValue, "unset")) {
+      size = CssLength{1.0f, CssUnit::Em};
+      valid = true;
+    } else if (iequalsAscii(sizeValue, "larger") || iequalsAscii(sizeValue, "smaller")) {
+      size = CssLength{iequalsAscii(sizeValue, "larger") ? 1.2f : 1.0f / 1.2f, CssUnit::Em};
+      valid = true;
+    } else {
+      static constexpr const char* keywords[] = {"xx-small", "x-small", "small",    "medium",
+                                                 "large",    "x-large", "xx-large", "initial"};
+      static constexpr float factors[] = {0.6f, 0.75f, 0.889f, 1.0f, 1.2f, 1.5f, 2.0f, 1.0f};
+      for (size_t i = 0; i < std::size(keywords); ++i) {
+        if (iequalsAscii(sizeValue, keywords[i])) {
+          size = CssLength{16.0f * factors[i], CssUnit::Pixels};
+          valid = true;
+          break;
+        }
+      }
+      if (!valid) {
+        // Unlike spacing lengths, unsupported units and unitless sizes are
+        // ignored instead of silently becoming pixels.
+        static constexpr const char* units[] = {"rem", "em", "px", "pt", "%"};
+        static constexpr CssUnit unitKinds[] = {CssUnit::Rem, CssUnit::Em, CssUnit::Pixels, CssUnit::Points,
+                                                CssUnit::Percent};
+        for (size_t i = 0; i < std::size(units); ++i) {
+          const size_t unitLength = std::strlen(units[i]);
+          if (sizeValue.size() > unitLength &&
+              iequalsAscii(sizeValue.substr(sizeValue.size() - unitLength), units[i])) {
+            valid = tryParseNumber(sizeValue.substr(0, sizeValue.size() - unitLength), size.value);
+            size.unit = unitKinds[i];
+            break;
+          }
+        }
+      }
+    }
+    if (valid && std::isfinite(size.value) && size.value > 0.0f) {
+      style.fontSize = size;
+      style.defined.fontSize = 1;
+    }
   } else if (iequalsAscii(name, "font-style")) {
     style.fontStyle = interpretFontStyle(value);
     style.defined.fontStyle = 1;
@@ -495,7 +538,9 @@ void CssParser::parseDeclarationIntoStyle(std::string_view decl, CssStyle& style
     }
   } else if (iequalsAscii(name, "display")) {
     const std::string_view displayValue = stripTrailingImportant(value);
-    style.display = iequalsAscii(displayValue, "none") ? CssDisplay::None : CssDisplay::Block;
+    style.display = iequalsAscii(displayValue, "none")     ? CssDisplay::None
+                    : iequalsAscii(displayValue, "inline") ? CssDisplay::Inline
+                                                           : CssDisplay::Block;
     style.defined.display = 1;
   } else if (iequalsAscii(name, "background") || iequalsAscii(name, "background-color")) {
     bool backgroundBlack = false;
@@ -985,7 +1030,8 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
       !writeLength(style.marginTop) || !writeLength(style.marginBottom) || !writeLength(style.marginLeft) ||
       !writeLength(style.marginRight) || !writeLength(style.paddingTop) || !writeLength(style.paddingBottom) ||
       !writeLength(style.paddingLeft) || !writeLength(style.paddingRight) || !writeLength(style.imageHeight) ||
-      !writeLength(style.imageWidth) || !writeByte(static_cast<uint8_t>(style.display)) ||
+      !writeLength(style.imageWidth) || !writeLength(style.fontSize) ||
+      !writeByte(static_cast<uint8_t>(style.display)) ||
       !writeByte(static_cast<uint8_t>(style.backgroundBlack ? 1 : 0)) ||
       !writeByte(static_cast<uint8_t>(style.verticalAlign)) || !writeByte(static_cast<uint8_t>(style.direction)) ||
       !writeByte(static_cast<uint8_t>(style.pageBreakBefore ? 1 : 0)) ||
@@ -1018,6 +1064,7 @@ bool CssParser::writeCssStylePayload(FsFile& file, const CssStyle& style) {
   if (style.defined.pageBreakBefore) definedBits |= 1 << 20;
   if (style.defined.pageBreakAfter) definedBits |= 1 << 21;
   if (style.defined.fontVariantCaps) definedBits |= 1 << 22;
+  if (style.defined.fontSize) definedBits |= 1 << 23;
   return writeBytes(&definedBits, sizeof(definedBits));
 }
 
@@ -1044,7 +1091,7 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   if (!readLength(style.textIndent) || !readLength(style.marginTop) || !readLength(style.marginBottom) ||
       !readLength(style.marginLeft) || !readLength(style.marginRight) || !readLength(style.paddingTop) ||
       !readLength(style.paddingBottom) || !readLength(style.paddingLeft) || !readLength(style.paddingRight) ||
-      !readLength(style.imageHeight) || !readLength(style.imageWidth)) {
+      !readLength(style.imageHeight) || !readLength(style.imageWidth) || !readLength(style.fontSize)) {
     return false;
   }
   uint8_t displayVal;
@@ -1095,6 +1142,10 @@ bool CssParser::readCssStylePayload(FsFile& file, CssStyle& style) {
   style.defined.pageBreakBefore = (definedBits & 1 << 20) != 0;
   style.defined.pageBreakAfter = (definedBits & 1 << 21) != 0;
   style.defined.fontVariantCaps = (definedBits & 1 << 22) != 0;
+  style.defined.fontSize = (definedBits & 1 << 23) != 0;
+  if (style.hasFontSize() && (!std::isfinite(style.fontSize.value) || style.fontSize.value <= 0 ||
+                              static_cast<uint8_t>(style.fontSize.unit) > static_cast<uint8_t>(CssUnit::Percent)))
+    return false;
   return true;
 }
 

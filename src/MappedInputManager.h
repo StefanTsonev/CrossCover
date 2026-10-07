@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 
+#include "util/EdgeSlide.h"
 #include "util/ReleaseSuppression.h"
 
 class GfxRenderer;
@@ -14,6 +15,13 @@ class MappedInputManager {
   enum class Button { Back, Confirm, Left, Right, Up, Down, Power, PageBack, PageForward };
   static constexpr size_t BUTTON_COUNT = static_cast<size_t>(Button::PageForward) + 1;
   enum class SwipeDir { None, Left, Right, Up, Down };
+  using EdgeSlide = ::EdgeSlide::Direction;
+  struct EdgeSlideProgress {
+    EdgeSlide direction = EdgeSlide::None;
+    int distance = 0;
+    bool finished = false;
+    bool leftEdgeBand = false;
+  };
 
   struct CompletedSwipe {
     uint8_t contactCount = 0;
@@ -78,11 +86,13 @@ class MappedInputManager {
   void suppressNextBackRelease() { releaseSuppression.suppressBack(); }
   void suppressNextConfirmRelease() { releaseSuppression.suppressConfirm(); }
   void suppressNextPowerRelease() { releaseSuppression.suppressPower(); }
+  void suppressNextSideRelease(Button button);
   void suppressNextPowerConfirmRelease() { releaseSuppression.suppressPowerConfirm(); }
   bool isPowerReleaseSuppressed() const { return releaseSuppression.isPowerReleaseSuppressed(); }
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   void injectRelease(Button button) const { injectedReleases[static_cast<size_t>(button)] = true; }
+  bool hasInjectedRelease(Button button) const { return injectedReleases[static_cast<size_t>(button)]; }
   void clearInjectedReleases() const { injectedReleases.fill(false); }
   bool isPressed(Button button) const;
   // Physical state is intentionally independent of release suppression. Use it
@@ -100,6 +110,9 @@ class MappedInputManager {
   bool getTwoFingerTouch(int& x1, int& y1, int& x2, int& y2) const;
   bool wasCompletedMultiTouchSwipe(CompletedSwipe& swipe) const;
   bool wasCompletedMultiTouchRotation(CompletedRotation& rotation) const;
+  // Report a side-band drag while held and once on release/cancellation.
+  bool getEdgeSlideProgress(EdgeSlideProgress& progress);
+  void resetEdgeSlide() { edgeSlideSide = EdgeSlide::None; }
   // True on boards with a capacitive home key (X4 Pro), where the bottom-edge
   // up-swipe is the reader-menu gesture rather than the exit-to-home gesture.
   // The Home key has its own reader lock setting, so it remains available when
@@ -180,6 +193,8 @@ class MappedInputManager {
   constexpr bool getTwoFingerTouch(int&, int&, int&, int&) const { return false; }
   constexpr bool wasCompletedMultiTouchSwipe(CompletedSwipe&) const { return false; }
   constexpr bool wasCompletedMultiTouchRotation(CompletedRotation&) const { return false; }
+  constexpr bool getEdgeSlideProgress(EdgeSlideProgress&) { return false; }
+  constexpr void resetEdgeSlide() {}
   constexpr bool hasHomeKey() const { return false; }
   constexpr bool isHomeButtonLockedInReader() const { return false; }
   constexpr bool wasScreenTapped(int&, int&) const { return false; }
@@ -222,6 +237,8 @@ class MappedInputManager {
   constexpr bool wasReaderLightPanelGesture() const { return false; }
   constexpr bool wasReaderMenuHold() const { return false; }
 #endif
+  // Directions for tabbed menus, derived from the physical button layout.
+  Button menuButton(Button direction) const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
@@ -256,8 +273,16 @@ class MappedInputManager {
   bool powerAsConfirmInReaderMode = false;
 #if CROSSINK_APP_CAP_TOUCH
   bool readerTouchscreenOverride = false;
+  EdgeSlide edgeSlideSide = EdgeSlide::None;
+  int edgeSlideStartX = 0;
+  int edgeSlideStartY = 0;
+  int edgeSlideLastX = 0;
+  int edgeSlideLastY = 0;
+  bool edgeSlideQualified = false;
 #endif
   mutable ReleaseSuppression releaseSuppression;
+  mutable bool suppressPhysicalUpRelease = false;
+  mutable bool suppressPhysicalDownRelease = false;
   static constexpr size_t LABEL_BUFFER_SIZE = 128;
   mutable std::array<std::array<char, LABEL_BUFFER_SIZE>, 4> labelBuffers{};
   // One-frame synthetic releases let a chord route through the existing
@@ -272,6 +297,7 @@ class MappedInputManager {
   std::array<bool, BUTTON_COUNT> simulatorReleased{};
   std::array<bool, BUTTON_COUNT> simulatorHeld{};
   std::array<unsigned long, BUTTON_COUNT> simulatorPressStart{};
+  std::array<unsigned long, BUTTON_COUNT> simulatorReleasedHeldTime{};
 #if CROSSINK_APP_CAP_TOUCH
   struct SimulatorTouch {
     bool pressed = false;

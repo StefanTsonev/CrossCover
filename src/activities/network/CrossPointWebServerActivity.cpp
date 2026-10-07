@@ -4,11 +4,13 @@
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <LibraryBuilder.h>
 #include <Memory.h>
 #include <WiFi.h>
 
 #include <cstddef>
 
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SdCardFontSystem.h"
@@ -99,6 +101,7 @@ void CrossPointWebServerActivity::onEnter() {
 }
 
 void CrossPointWebServerActivity::onExit() {
+  library::invalidateLibraryIndex();
   Activity::onExit();
 
   state = WebServerActivityState::SHUTTING_DOWN;
@@ -322,6 +325,10 @@ void CrossPointWebServerActivity::startAccessPoint() {
 void CrossPointWebServerActivity::startWebServer() {
   // Create the web server instance
   webServer.reset(new CrossPointWebServer());
+  leaveRequested = false;
+  webServer->setUploadCancelCheck(
+      [](void* context) { return static_cast<CrossPointWebServerActivity*>(context)->checkUploadCancellation(); },
+      this);
   webServer->begin();
 
   if (webServer->isRunning()) {
@@ -339,6 +346,15 @@ void CrossPointWebServerActivity::startWebServer() {
   }
 }
 
+bool CrossPointWebServerActivity::checkUploadCancellation() {
+  if (leaveRequested) return true;
+  // Only poll here while a multipart body blocks the main loop. HalGPIO::update
+  // already re-samples pending physical-button debounce; no extra delay needed.
+  mappedInput.update();
+  leaveRequested = exitRequested() || mappedInput.isPressed(MappedInputManager::Button::Back);
+  return leaveRequested;
+}
+
 void CrossPointWebServerActivity::exitToOrigin() {
   if (networkBootReady) {
     if (returnBookPath.empty()) {
@@ -354,6 +370,12 @@ void CrossPointWebServerActivity::exitToOrigin() {
     return;
   }
 
+  // A portal rename updates the persisted resume path while this activity's
+  // original return path still contains the old filename.
+  if (!Storage.exists(returnBookPath.c_str()) && !APP_STATE.openEpubPath.empty() &&
+      Storage.exists(APP_STATE.openEpubPath.c_str())) {
+    returnBookPath = APP_STATE.openEpubPath;
+  }
   activityManager.goToReader(returnBookPath, true);
 }
 
@@ -432,23 +454,20 @@ void CrossPointWebServerActivity::loop() {
         LOG_DBG("WEBACT", "WARNING: %lu ms gap since last handleClient", timeSinceLastHandleClient);
       }
 
-      // Process HTTP requests in tight loop for maximum throughput
-      // More iterations = more data processed per main loop cycle
-      constexpr int MAX_ITERATIONS = 500;
+      // Process a batch of HTTP requests, then return to the main loop, which
+      // skips its delay while the server runs. Input is polled only there:
+      // every update() clears the previous poll's one-shot touch events
+      // (touch-down, release, completed two-finger swipes), so polling here
+      // dropped them before the ActivityManager's edge-slide and two-finger
+      // gesture handling could see them. The batch matches the old poll
+      // interval, so exit buttons stay as responsive as before.
+      constexpr int MAX_ITERATIONS = 64;
       for (int i = 0; i < MAX_ITERATIONS && webServer->isRunning(); i++) {
         webServer->handleClient();
-        // Yield and check for exit button every 64 iterations
-        if ((i & 0x3F) == 0x3F) {
-          yield();
-          // Force trigger an update of which buttons are being pressed so be have accurate state
-          // for back button checking
-          mappedInput.update();
-          // This local update can consume one-shot exit events before the
-          // ActivityManager sees them, so honor every exit route here.
-          if (exitRequested()) {
-            exitToOrigin();
-            return;
-          }
+        if (leaveRequested) {
+          // The callback only cancels I/O. Navigate after the server unwinds.
+          exitToOrigin();
+          return;
         }
       }
       lastHandleClientTime = millis();

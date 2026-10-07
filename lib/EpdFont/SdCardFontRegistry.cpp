@@ -5,6 +5,11 @@
 #include <Logging.h>
 #include <MemoryBudget.h>
 
+#include "../../src/ReaderFontSizeStep.h"
+#if CROSSINK_SCALABLE_FONTS
+#include <HalScalableFont.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
@@ -21,7 +26,7 @@ std::atomic<uint32_t> indexGeneration{0};
 const SdCardFontFileInfo* SdCardFontFamilyInfo::findFile(uint8_t size, uint8_t style) const {
   if (!ensureDetails()) return nullptr;
   for (const auto& f : files) {
-    if (f.pointSize == size && f.style == style) return &f;
+    if ((f.pointSize == size || f.pointSize == 0) && f.style == style) return &f;
   }
   return nullptr;
 }
@@ -42,6 +47,7 @@ const SdCardFontFileInfo* SdCardFontFamilyInfo::findClosestFile(uint8_t targetSi
 }
 
 std::vector<uint8_t> SdCardFontFamilyInfo::availableSizes() const {
+  if (isScalable()) return {std::begin(SCALABLE_READER_FONT_SIZES), std::end(SCALABLE_READER_FONT_SIZES)};
   if (!ensureDetails()) return {};
   std::vector<uint8_t> sizes;
   for (const auto& f : files) {
@@ -107,9 +113,12 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
   // Point sizes are uint8_t, so a 32-byte bitmap rejects duplicate files
   // without retaining their paths.
   uint8_t seenSizes[32] = {};
+  uint8_t seenStyles = 0;
   char name[128];
+  char path[fontcatalog::MaxPath + 1];
   uint16_t count = 0;
   uint8_t first = UINT8_MAX, last = 0;
+  bool scalable = false;
   while (true) {
     HalFile entry = dir.openNextFile();
     if (!entry) break;
@@ -119,7 +128,32 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
     if (isDirectory || name[0] == '.' || name[0] == '_') continue;
 
     uint8_t size = 0, style = 0;
-    if (!SdCardFontRegistry::parseFilename(name, size, style)) continue;
+    if (!SdCardFontRegistry::parseFilename(name, size, style)) {
+#if CROSSINK_SCALABLE_FONTS
+      const size_t nameLength = std::strlen(name);
+      // A family is either bitmap or scalable. Once the first TTF selects the
+      // scalable path, continue counting its other unique style files.
+      if ((!scalable && count != 0) || nameLength < 5 || strcasecmp(name + nameLength - 4, ".ttf") != 0) continue;
+      const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
+      if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
+      HalScalableFont::Info info;
+      bool unavailable = false;
+      if (!HalScalableFont::inspectFile(path, info, &unavailable)) {
+        if (unavailable) {
+          dir.close();
+          return false;
+        }
+        continue;
+      }
+      const uint8_t styleMask = uint8_t(1U << info.style);
+      if (seenStyles & styleMask) continue;
+      seenStyles |= styleMask;
+      scalable = true;
+      ++count;
+#endif
+      continue;
+    }
+    if (scalable) continue;
     const size_t pathLength = std::strlen(dirPath) + 1 + std::strlen(name);
     if (pathLength > fontcatalog::MaxPath) continue;
     const uint8_t mask = uint8_t(1U << (size & 7U));
@@ -136,8 +170,12 @@ bool scanFamilySummary(const char* dirPath, SdCardFontFamilyInfo& family) {
   dir.close();
   if (!ok) return false;
   family.indexCount = count;
-  family.firstSize = count ? first : 0;
-  family.lastSize = last;
+  family.indexedScalable = scalable;
+  family.firstSize = scalable ? SCALABLE_READER_FONT_SIZES[0] : (count ? first : 0);
+  family.lastSize =
+      scalable
+          ? SCALABLE_READER_FONT_SIZES[sizeof(SCALABLE_READER_FONT_SIZES) / sizeof(SCALABLE_READER_FONT_SIZES[0]) - 1]
+          : last;
   return true;
 }
 
@@ -212,6 +250,7 @@ bool writeFamilyDetails(HalFile& index, const char* dirPath, const uint16_t expe
   // This cold rebuild path uses bounded stack buffers instead of one heap
   // string per font. It runs before Wi-Fi when entering the web server.
   uint8_t seenSizes[32] = {};
+  uint8_t seenStyles = 0;
   char name[128];
   char path[fontcatalog::MaxPath + 1];
   bool ok = true;
@@ -224,12 +263,39 @@ bool writeFamilyDetails(HalFile& index, const char* dirPath, const uint16_t expe
     if (isDirectory || name[0] == '.' || name[0] == '_') continue;
 
     uint8_t size = 0, style = 0;
-    if (!SdCardFontRegistry::parseFilename(name, size, style)) continue;
+    if (summary.scalable) {
+#if CROSSINK_SCALABLE_FONTS
+      const size_t nameLength = std::strlen(name);
+      if (nameLength < 5 || strcasecmp(name + nameLength - 4, ".ttf") != 0) continue;
+      const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
+      if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
+      HalScalableFont::Info info;
+      bool unavailable = false;
+      if (!HalScalableFont::inspectFile(path, info, &unavailable)) {
+        if (unavailable) {
+          dir.close();
+          return false;
+        }
+        continue;
+      }
+      const uint8_t styleMask = uint8_t(1U << info.style);
+      if (seenStyles & styleMask) continue;
+      seenStyles |= styleMask;
+      size = 0;
+      style = info.style;
+#else
+      continue;
+#endif
+    } else if (!SdCardFontRegistry::parseFilename(name, size, style)) {
+      continue;
+    }
     const int length = std::snprintf(path, sizeof(path), "%s/%s", dirPath, name);
     if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) continue;
-    const uint8_t mask = uint8_t(1U << (size & 7U));
-    if (seenSizes[size >> 3U] & mask) continue;
-    seenSizes[size >> 3U] |= mask;
+    if (!summary.scalable) {
+      const uint8_t mask = uint8_t(1U << (size & 7U));
+      if (seenSizes[size >> 3U] & mask) continue;
+      seenSizes[size >> 3U] |= mask;
+    }
 
     const uint8_t meta[] = {size, style, uint8_t(length)};
     summary.hash = fontcatalog::hashBytes(summary.hash, meta, sizeof(meta));
@@ -240,9 +306,13 @@ bool writeFamilyDetails(HalFile& index, const char* dirPath, const uint16_t expe
     ++summary.count;
   }
   ok = ok && !FsHelpers::directoryIterationFailed(dir) && summary.count == expectedCount;
+  if (!ok)
+    LOG_ERR("SDREG", "Could not index font family details: %s (expected=%u actual=%u)", dirPath,
+            unsigned(expectedCount), unsigned(summary.count));
   dir.close();
   return ok;
 }
+
 }  // namespace
 
 bool SdCardFontRegistry::discover() {
@@ -395,7 +465,7 @@ bool SdCardFontRegistry::readIndex(uint64_t fingerprint) {
   Header header;
   const size_t length = file.size();
   bool ok = length <= MaxBytes && file.read(&header, sizeof(header)) == sizeof(header) && header.magic == Magic &&
-            header.version == Version && header.inventory == fingerprint && header.reserved == 0 &&
+            header.version == Version && header.inventory == fingerprint && header.scalable == Mode &&
             header.count <= MAX_SD_FAMILIES && length >= sizeof(Header) + header.count * sizeof(Entry);
   if (!ok) {
     file.close();
@@ -418,8 +488,8 @@ bool SdCardFontRegistry::readIndex(uint64_t fingerprint) {
     Entry entry;
     ok = file.read(&entry, sizeof(entry)) == sizeof(entry) && std::memchr(entry.name, '\0', sizeof(entry.name)) &&
          entry.checksum == hashBytes(2166136261u, &entry, offsetof(Entry, checksum)) && entry.name[0] &&
-         entry.count > 0 && entry.count <= MaxFiles && entry.offset == next && entry.bytes <= length - next &&
-         entry.first > 0 && entry.last >= entry.first;
+         entry.count > 0 && entry.count <= MaxFiles && entry.scalable <= 1 && entry.offset == next &&
+         entry.bytes <= length - next && entry.first > 0 && entry.last >= entry.first;
     if (!ok) break;
     if (!families_.empty() && families_.back().name >= entry.name) {
       ok = false;
@@ -429,6 +499,7 @@ bool SdCardFontRegistry::readIndex(uint64_t fingerprint) {
     family.name = entry.name;
     family.firstSize = entry.first;
     family.lastSize = entry.last;
+    family.indexedScalable = entry.scalable;
     family.indexOffset = entry.offset;
     family.indexBytes = entry.bytes;
     family.indexHash = entry.hash;
@@ -479,6 +550,7 @@ bool SdCardFontRegistry::rebuildIndex(uint64_t fingerprint, uint32_t generation)
   Header header;
   header.inventory = fingerprint;
   header.count = families_.size();
+  header.scalable = Mode;
   bool ok = file.write(&header, sizeof(header)) == sizeof(header);
   // SdFat cannot seek past EOF. Materialize the summary table before writing
   // detail blocks, then seek back only within the existing file to fill entries.
@@ -501,6 +573,7 @@ bool SdCardFontRegistry::rebuildIndex(uint64_t fingerprint, uint32_t generation)
     entry.offset = offset;
     entry.first = family.firstSize;
     entry.last = family.lastSize;
+    entry.scalable = family.indexedScalable;
     entry.hash = 2166136261u;
     ok = file.seek(offset);
     if (ok) ok = writeFamilyDetails(file, familyPath, family.indexCount, entry);
@@ -550,7 +623,7 @@ bool SdCardFontFamilyInfo::ensureDetails() const {
     ok = remaining >= sizeof(meta) && file.read(meta, sizeof(meta)) == sizeof(meta);
     if (!ok) break;
     remaining -= sizeof(meta);
-    ok = meta[0] != 0 && meta[2] > 0 && meta[2] <= remaining && meta[1] < 4;
+    ok = meta[2] > 0 && meta[2] <= remaining && meta[1] < 4 && (indexedScalable ? meta[0] == 0 : meta[0] != 0);
     if (!ok) break;
     SdCardFontFileInfo font;
     font.pointSize = meta[0];

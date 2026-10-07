@@ -59,7 +59,7 @@ def check_drawer(program: Path, orientation: int) -> None:
                    CROSSPOINT_SIM_SCREENSHOTS=f"5000:{screenshot}")
         result = subprocess.run([str(program)], cwd=work, env=env, capture_output=True, text=True, timeout=20)
         output = result.stdout + result.stderr
-        if result.returncode or "Entering activity: EpubReaderTouchMenu" not in output:
+        if result.returncode or "Entering activity: EpubReaderDrawer" not in output:
             raise AssertionError(f"Reader drawer did not open\n{output}")
         groups = rule_groups(screenshot)
         if groups != 1:

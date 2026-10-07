@@ -410,29 +410,25 @@ void drawBookCover(const GfxRenderer& renderer, const Rect& coverRect, const Rec
 }  // namespace
 
 void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
-                              const bool readerContext) const {
+                              const bool readerContext, const bool showStatus) const {
   (void)subtitle;
+  (void)readerContext;
 
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
-  const bool showBatteryPercentage =
-      SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
-  const int batteryX = rect.x + rect.width - 12 - MinimalMetrics::values.batteryWidth;
-  const int batteryY = rect.y + homeHeaderTopInset + UITheme::getTopStatusBarInset(renderer);
-  drawBatteryRight(renderer,
-                   Rect{batteryX, batteryY, MinimalMetrics::values.batteryWidth, MinimalMetrics::values.batteryHeight},
-                   showBatteryPercentage);
 
   if (title) {
     constexpr int titleInsetX = 12;
-    const int maxTitleWidth = batteryX - rect.x - titleInsetX - MinimalMetrics::values.contentSidePadding;
+    const int titleRight = rect.x + rect.width - 12;
+    const int maxTitleWidth = titleRight - rect.x - titleInsetX - MinimalMetrics::values.contentSidePadding;
     auto truncatedTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
     renderer.drawText(UI_12_FONT_ID, rect.x + titleInsetX, rect.y + MinimalMetrics::values.batteryBarHeight + 3,
                       truncatedTitle.c_str(), true, EpdFontFamily::BOLD);
     renderer.drawLine(rect.x, rect.y + rect.height - 3, rect.x + rect.width - 1, rect.y + rect.height - 3, 3, true);
   }
 
-  drawTopStatusBarClock(renderer, rect.y, nullptr, readerContext,
-                        title == nullptr && !readerContext ? homeHeaderClockTextYOffset(renderer) : 0);
+  if (showStatus) {
+    drawDisplayStatusBar(renderer, rect.y);
+  }
 }
 
 void MinimalTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,

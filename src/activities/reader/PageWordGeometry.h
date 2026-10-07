@@ -20,7 +20,8 @@ inline PageWordGeometry clipPageTextRange(const PageTextLine& line, const int xO
 inline PageWordGeometry pageWordGeometry(const GfxRenderer& renderer, const int fontId, const PageTextLine& line,
                                          const TextBlock& block, const uint16_t wordIndex) {
   const auto style = static_cast<EpdFontFamily::Style>(block.wordStyle(wordIndex) & ~EpdFontFamily::UNDERLINE);
-  int width = renderer.getTextAdvanceX(fontId, block.wordText(wordIndex), style);
+  const int lineFontId = block.resolvedFontId(renderer, fontId);
+  int width = renderer.getTextAdvanceX(lineFontId, block.wordText(wordIndex), style);
   if (wordIndex + 1 < block.wordCount() && block.wordXpos(wordIndex + 1) > block.wordXpos(wordIndex)) {
     width = std::min(width, static_cast<int>(block.wordXpos(wordIndex + 1) - block.wordXpos(wordIndex)));
   }

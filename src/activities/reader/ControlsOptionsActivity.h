@@ -24,6 +24,7 @@ class ControlsOptionsActivity final : public Activity {
   std::vector<SettingInfo> sideButtonSettings;
   std::vector<SettingInfo> tapsGesturesSettings;
   std::vector<SettingInfo> twoFingerSwipeSettings;
+  std::vector<SettingInfo> edgeGestureSettings;
   const std::vector<SettingInfo>* currentSettings = nullptr;
   SettingAction activeSubmenu = SettingAction::None;
   SettingAction parentSubmenu = SettingAction::None;

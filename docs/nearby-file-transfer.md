@@ -35,7 +35,7 @@ creates a separate copy with a numbered suffix.
 
 1. On the receiving reader, start **Receive File** as described above.
 2. On the sending reader, find a supported file in **Browse Files** or
-   **Recent Books**.
+   **Library**.
 3. Open the file action menu and select **Send to Nearby Device**.
 4. Wait for the receiving reader to appear, select it, and wait for approval.
 5. Keep both readers on their transfer screens until the sender reports

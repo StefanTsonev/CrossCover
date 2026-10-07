@@ -18,17 +18,15 @@ inline void cancelAndFinish(Activity& act) {
   act.finish();
 }
 
-// Dictionary screens normally follow the configured reader side-button layout.
-// Next/Next has no PageBack binding, so reserve Up/Left for previous navigation
-// and keep Down/Right as next.
+// Dictionary screens follow configured short page actions. When both side
+// buttons turn forward, reserve Up for previous navigation in the picker.
 inline bool dictionaryPageButtonTriggered(MappedInputManager& input, const bool previous) {
-  const bool usePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
-  const auto sideLayout = static_cast<CrossPointSettings::SIDE_BUTTON_LAYOUT>(SETTINGS.sideButtonLayout);
   const MappedInputManager::Button button =
-      sideLayout == CrossPointSettings::NEXT_NEXT
+      SETTINGS.sideButtonUpShort == CrossPointSettings::PAGE_TURN &&
+              SETTINGS.sideButtonDownShort == CrossPointSettings::PAGE_TURN
           ? (previous ? MappedInputManager::Button::Up : MappedInputManager::Button::Down)
           : (previous ? MappedInputManager::Button::PageBack : MappedInputManager::Button::PageForward);
-  return usePress ? input.wasPressed(button) : input.wasReleased(button);
+  return input.wasReleased(button);
 }
 
 inline void drawWordSelectButtonHints(GfxRenderer& renderer, const MappedInputManager& mappedInput,

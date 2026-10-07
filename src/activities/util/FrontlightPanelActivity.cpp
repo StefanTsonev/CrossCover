@@ -1,6 +1,7 @@
 #include "FrontlightPanelActivity.h"
 
 #include <CrossInkHalFrontlight.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Memory.h>
@@ -25,6 +26,7 @@
 #include "components/icons/readingStatsIcons.h"
 #include "components/icons/tablerIcons.h"
 #include "components/icons/touchscreenStateIcons.h"
+#include "util/ReaderBookProgress.h"
 
 namespace fui = freeink::ui;
 
@@ -115,6 +117,13 @@ void FrontlightPanelActivity::onExit() {
   Activity::onExit();
 }
 
+void FrontlightPanelActivity::onExternalFrontlightChange() {
+  brightness = Frontlight.brightness();
+  warmth = Frontlight.warmth();
+  lightOn = Frontlight.isOn();
+  requestUpdate();
+}
+
 void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<FrontlightPanelActivity*>(user);
   if (event.dragPermille < 0) return;
@@ -195,9 +204,18 @@ void FrontlightPanelActivity::toggleReaderTouchscreen() {
   requestUpdate();
 }
 
-void FrontlightPanelActivity::close() { finish(); }
+void FrontlightPanelActivity::close() {
+  FrontlightPanelResult result;
+  result.state = drawerState;
+  result.activeEpub = context.activeEpub;
+  result.ttfRenderingChanged = ttfRenderingChanged;
+  result.bookPath = context.bookPath;
+  setResult(ActivityResult(std::move(result)));
+  finish();
+}
 
 void FrontlightPanelActivity::openReadingStats() {
+  if (!context.showReadingStatsAction || !SETTINGS.shouldTrackReadingStats()) return;
   if (!context.readingStatsActivity && context.sourceActivity) {
     context.readingStatsActivity = context.sourceActivity->createFrontlightReadingStatsActivity();
   }
@@ -214,7 +232,10 @@ void FrontlightPanelActivity::openGlobalSettings() {
     if (startedGlobalEdit) activityManager.endGlobalSettingsEdit();
     return;
   }
-  startActivityForResult(std::move(settings), [this, startedGlobalEdit](const ActivityResult&) {
+  startActivityForResult(std::move(settings), [this, startedGlobalEdit](const ActivityResult& result) {
+    if (const auto* options = std::get_if<TtfRenderOptionsResult>(&result.data)) {
+      ttfRenderingChanged = ttfRenderingChanged || options->activeFamilyChanged;
+    }
     if (startedGlobalEdit) activityManager.endGlobalSettingsEdit();
     close();
   });
@@ -224,7 +245,7 @@ void FrontlightPanelActivity::openSyncDialog() {
   static constexpr std::array<StrId, 3> OPTIONS = {StrId::STR_SYNC_PROGRESS, StrId::STR_NEARBY_POSITION_SYNC,
                                                    StrId::STR_SEND_NEARBY_BOOK};
   drawerState.syncDialogOpen = true;
-  const bool canSyncBookProgress = context.activeEpub;
+  const bool canSyncBookProgress = FsHelpers::hasEpubExtension(context.bookPath);
   const bool canSendBook = !context.bookPath.empty();
   optionPopup.show(StrId::STR_SYNC_AND_TRANSFER, OPTIONS.data(), OPTIONS.size(), canSyncBookProgress ? 0 : 2,
                    [this](const int index) {
@@ -251,6 +272,7 @@ void FrontlightPanelActivity::closeSyncDialog() {
 
 void FrontlightPanelActivity::activateQuickAction(const int index) {
   if (index < 0 || index >= 5) return;
+  if (index == 0 && !context.showReadingStatsAction) return;
   drawerState.selectedAction = static_cast<int8_t>(index);
   switch (index) {
     case 0:
@@ -346,13 +368,14 @@ Rect FrontlightPanelActivity::homeButtonRect() const {
               TouchHeaderBackButton::height(metrics, mappedInput)};
 }
 
-int FrontlightPanelActivity::computePanelBottom() const {
+int FrontlightPanelActivity::computePanelBottom() {
   // Mirror buildPanelScreen's takeTop/spacer sequence so the frame, content
   // margin, and dismiss threshold land on the same edge.
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto tokens = uiThemeTokens(uiTarget);
   const int16_t lh = uiTarget.lineHeight(tokens.bodyText.font);
   int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
+  if (showsBookProgress()) y += metrics.tabBarHeight;
   if (context.showReaderDetails) {
     const int16_t titleLh = uiTarget.lineHeight(tokens.titleText.font);
     y += tokens.spaceLg * 2;
@@ -366,15 +389,29 @@ int FrontlightPanelActivity::computePanelBottom() const {
     const auto sheet = frontlightSheetProps();
     return y + DrawerHandle::bandHeight(sheet);
   }
-  y += tokens.spaceLg;                     // leading spacer
-  y += tokens.rowHeight + tokens.spaceSm;  // brightness label + frontlight toggle row
-  y += tokens.rowHeight + tokens.spaceLg;  // brightness slider
-  if (Frontlight.hasColorTemperature()) {
-    y += lh + tokens.spaceSm + tokens.rowHeight + tokens.spaceLg;  // warmth label + slider
-  }
-  y += tokens.spaceLg + ACTION_BAR_HEIGHT;  // trailing padding + actions
+  panelRowHeight = tokens.rowHeight;
+  panelSpaceSm = tokens.spaceSm;
+  panelSpaceLg = tokens.spaceLg;
+  // The warmth row adds one row, its label line, and one gap of each size.
+  const int warmthRows = static_cast<int>(Frontlight.hasColorTemperature());
+  const int rowCount = 2 + warmthRows;
+  const int largeGapCount = 3 + warmthRows;
+  const int smallGapCount = 1 + warmthRows;
   const auto sheet = frontlightSheetProps();
-  return y + DrawerHandle::bandHeight(sheet);
+  const auto safe = uiTarget.deviceContext().safeArea;
+  const int maxBottom = renderer.getScreenHeight() - safe.bottom;
+  const auto bottom = [&] {
+    return y + rowCount * panelRowHeight + warmthRows * lh + largeGapCount * panelSpaceLg +
+           smallGapCount * panelSpaceSm + ACTION_BAR_HEIGHT + DrawerHandle::bandHeight(sheet);
+  };
+  // Preserve Large text, the action bar, and the close handle. Spend less on
+  // blank spacing first, then on the two-line list padding these single-line
+  // controls inherited from the shared theme.
+  while (bottom() > maxBottom && panelSpaceLg > 2) --panelSpaceLg;
+  while (bottom() > maxBottom && panelSpaceSm > 2) --panelSpaceSm;
+  const int minRowHeight = std::max<int>(tokens.minTouchSize, lh);
+  while (bottom() > maxBottom && panelRowHeight > minRowHeight) --panelRowHeight;
+  return std::min(bottom(), maxBottom);
 }
 
 void FrontlightPanelActivity::prepareReaderDetailsLayout() {
@@ -433,19 +470,26 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   const fui::Rect sheetContent = fui::sheetContentRect(sheetRect, sheet);
   drawerHandleRect = DrawerHandle::registerTap(screen.frame(), sheetContent, sheet, ACTION_DISMISS);
   const int16_t bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - sheetContent.bottom());
-  screen.setContentMargin(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput)), 0,
-                  bottomInset, 0});
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
+                                       (showsBookProgress() ? metrics.tabBarHeight : 0)),
+                  0, bottomInset, 0});
 
   const fui::Rect actionBar = screen.takeBottom(ACTION_BAR_HEIGHT);
-  const int16_t slotWidth = static_cast<int16_t>(actionBar.width / 5);
+#ifdef SIMULATOR
+  simulatorActionBarTop = actionBar.y;
+#endif
+  const bool showStats = context.showReadingStatsAction;
+  const int16_t slotCount = showStats ? 5 : 4;
+  const int16_t slotWidth = static_cast<int16_t>(actionBar.width / slotCount);
   const std::array<fui::BitmapRef, 5> icons = {
       fui::bitmapFromIcon(icon_reading_stats_24), fui::bitmapFromIcon(icon_transfer_24),
       fui::bitmapFromIcon(icon_tabler_moon_filled_24), fui::bitmapFromIcon(icon_sliders_horizontal_24),
       fui::bitmapFromIcon(pendingTouchscreenDisabled ? icon_device_tablet_off_24 : icon_device_tablet_24)};
-  for (int16_t i = 0; i < 5; ++i) {
-    const int16_t x = static_cast<int16_t>(actionBar.x + i * slotWidth);
-    const int16_t width = i == 4 ? static_cast<int16_t>(actionBar.right() - x) : slotWidth;
+  for (int16_t slotIndex = 0; slotIndex < slotCount; ++slotIndex) {
+    const int16_t i = showStats ? slotIndex : slotIndex + 1;
+    const int16_t x = static_cast<int16_t>(actionBar.x + slotIndex * slotWidth);
+    const int16_t width = slotIndex == slotCount - 1 ? static_cast<int16_t>(actionBar.right() - x) : slotWidth;
     const fui::Rect slot{x, actionBar.y, width, actionBar.height};
     screen.frame().hit(slot, ACTION_QUICK, i);
     screen.target().bitmap(slot, icons[static_cast<size_t>(i)], fui::BitmapMode::Center);
@@ -458,17 +502,17 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   }
 
   const int16_t lh = screen.target().lineHeight(theme.bodyText.font);
-  const int16_t rowH = theme.rowHeight;
+  const int16_t rowH = panelRowHeight;
   const fui::Insets sideInset{0, static_cast<int16_t>(theme.spaceLg * 2), 0, static_cast<int16_t>(theme.spaceLg * 2)};
   char line[48];
 
-  screen.spacer(theme.spaceLg);
+  screen.spacer(panelSpaceLg);
 
   // Header row: "Brightness NN%" on the left, a tappable bulb icon on the right
   // that toggles the light — `lightbulb` when on, `lightbulb-off` when off (the
   // icon itself is the state indicator). Sharing a row with the label frees the
   // whole bottom toggle row, shrinking the panel.
-  const fui::Rect headerRow = screen.takeTop(rowH, theme.spaceSm).inset(sideInset);
+  const fui::Rect headerRow = screen.takeTop(rowH, panelSpaceSm).inset(sideInset);
   snprintf(line, sizeof(line), "%s  %u%%", tr(STR_BRIGHTNESS), static_cast<unsigned>(brightness));
   const fui::BitmapRef lightIcon = fui::bitmapFromIcon(lightOn ? icon_lightbulb_28 : icon_lightbulb_off_28);
   const int16_t iconW = static_cast<int16_t>(lightIcon.width);
@@ -482,24 +526,27 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   // target fill the otherwise blank right edge and the adjacent row gaps.
   // This makes the control more forgiving without reaching the brightness
   // slider below.
-  const int16_t hitW = static_cast<int16_t>(iconW + theme.spaceLg * 4);
+  const int16_t hitW = static_cast<int16_t>(iconW + panelSpaceLg * 4);
   const fui::Rect hitRect{static_cast<int16_t>(headerRow.right() - hitW),
-                          static_cast<int16_t>(headerRow.y - theme.spaceSm),
-                          static_cast<int16_t>(hitW + sideInset.right), static_cast<int16_t>(rowH + theme.spaceSm * 2)};
+                          static_cast<int16_t>(headerRow.y - panelSpaceSm),
+                          static_cast<int16_t>(hitW + sideInset.right), static_cast<int16_t>(rowH + panelSpaceSm * 2)};
   screen.frame().hit(hitRect, ACTION_TOGGLE);
   screen.target().bitmap(iconRect, lightIcon, fui::BitmapMode::Center);
 
-  addStepSlider(screen, screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset), brightness, ACTION_BRIGHTNESS,
+  addStepSlider(screen, screen.takeTop(rowH, panelSpaceLg).inset(sideInset), brightness, ACTION_BRIGHTNESS,
                 ACTION_BRIGHTNESS_STEP);
 
   if (Frontlight.hasColorTemperature()) {
     snprintf(line, sizeof(line), "%s  %u%%", tr(STR_WARMTH), static_cast<unsigned>(warmth));
-    screen.target().text(screen.takeTop(lh, theme.spaceSm).inset(sideInset), line, theme.bodyText);
-    addStepSlider(screen, screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset), warmth, ACTION_WARMTH,
+    screen.target().text(screen.takeTop(lh, panelSpaceSm).inset(sideInset), line, theme.bodyText);
+    addStepSlider(screen, screen.takeTop(rowH, panelSpaceLg).inset(sideInset), warmth, ACTION_WARMTH,
                   ACTION_WARMTH_STEP);
   }
 
-  screen.spacer(theme.spaceLg);
+  screen.spacer(panelSpaceLg);
+#ifdef SIMULATOR
+  simulatorContentBottom = screen.contentRect().y;
+#endif
 }
 
 void FrontlightPanelActivity::drawHeader() {
@@ -507,7 +554,7 @@ void FrontlightPanelActivity::drawHeader() {
   const int headerHeight = TouchHeaderBackButton::height(metrics, mappedInput);
   const Rect header{0, metrics.topPadding, renderer.getScreenWidth(), headerHeight};
 
-  char date[16] = {};
+  char date[32] = {};
   const char* title = context.showReaderDetails ? "" : tr(STR_FRONTLIGHT);
   int titleFontId = UI_12_FONT_ID;
   if (context.showReaderDetails) {
@@ -538,8 +585,8 @@ void FrontlightPanelActivity::drawHeader() {
     const int titleX = header.x + tokens.headerSidePadding;
     const int titleRight = homeButton.x - tokens.spaceSm;
     const int titleWidth = std::max(0, titleRight - titleX);
-    const std::string visibleTitle = renderer.truncatedText(titleFontId, title, titleWidth, EpdFontFamily::REGULAR);
-    renderer.drawText(titleFontId, titleX, titleY, visibleTitle.c_str(), true);
+    const std::string visibleTitle = renderer.truncatedText(titleFontId, title, titleWidth, EpdFontFamily::BOLD);
+    renderer.drawText(titleFontId, titleX, titleY, visibleTitle.c_str(), true, EpdFontFamily::BOLD);
   } else {
     UITheme::drawCenteredText(renderer, header, titleFontId, titleY, title, true);
   }
@@ -551,6 +598,23 @@ void FrontlightPanelActivity::drawHeader() {
                               HEADER_ICON_SIZE, HEADER_ICON_SIZE},
                     fui::bitmapFromIcon(icon_home_24), fui::BitmapMode::Center);
   }
+}
+
+bool FrontlightPanelActivity::showsBookProgress() const {
+  return context.activeReaderBook && !context.showReaderDetails && !context.bookDetails.title.empty();
+}
+
+void FrontlightPanelActivity::drawBookProgress() {
+  if (!showsBookProgress()) return;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int y = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput);
+  const Rect row{0, y, renderer.getScreenWidth(), metrics.tabBarHeight};
+  char progress[96];
+  formatReaderBookProgress(progress, sizeof(progress), context.bookDetails.chapterPage,
+                           context.bookDetails.chapterPageCount, context.bookDetails.chapterPageCountEstimated,
+                           context.bookDetails.progressPercent);
+  GUI.drawSubHeader(renderer, row, progress);
+  renderer.drawLine(row.x, row.y + row.height - 1, row.x + row.width - 1, row.y + row.height - 1, 1, true);
 }
 
 void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui::Rect& row, const uint8_t value,
@@ -580,13 +644,14 @@ void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui
 
 void FrontlightPanelActivity::render(RenderLock&&) {
   // Overlay drop-down: keep the framebuffer content (the reader/menu we opened
-  // over) intact below the panel; only the top third is repainted. No full
+  // over) intact below the panel; only the fitted panel is repainted. No full
   // clearScreen — same as the theme popups draw over the current frame.
   panelBottom = computePanelBottom();
   uiReady = false;
   app.render();
   uiReady = true;
   drawHeader();
+  drawBookProgress();
 
   // The dialog is the topmost layer.
   if (optionPopup.isActive()) optionPopup.render(renderer);

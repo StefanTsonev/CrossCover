@@ -29,3 +29,10 @@ TEST(ReaderStatusBarTapTarget, RejectsMissingOrInvalidStatusBarRegions) {
   EXPECT_FALSE(ReaderStatusBarTapTarget::containsTop(8, 480, -1, 19));
   EXPECT_FALSE(ReaderStatusBarTapTarget::containsTop(8, 0, 0, 19));
 }
+
+TEST(ReaderStatusBarTapTarget, TopAndBottomCanBeTappedIndependently) {
+  EXPECT_TRUE(ReaderStatusBarTapTarget::containsTop(16, 480, 8, 24));
+  EXPECT_FALSE(ReaderStatusBarTapTarget::containsBottom(16, 480, 5, 24));
+  EXPECT_TRUE(ReaderStatusBarTapTarget::containsBottom(460, 480, 5, 24));
+  EXPECT_FALSE(ReaderStatusBarTapTarget::containsTop(460, 480, 8, 24));
+}

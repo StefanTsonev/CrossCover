@@ -25,6 +25,27 @@ constexpr unsigned long TOUCH_CLIP_HOLD_MS = 500;
 
 bool hasEmSpace(const char* text) { return text[0] == '\xe2' && text[1] == '\x80' && text[2] == '\x83'; }
 
+bool pageUsesButtonHintBand(GfxRenderer& renderer) {
+  // Button hints occupy the physical portrait footer in every reader orientation.
+  const auto originalOrientation = renderer.getOrientation();
+  renderer.setOrientation(GfxRenderer::Portrait);
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  const int hintTop = std::max(0, screenHeight - UITheme::getInstance().getMetrics().buttonHintsHeight);
+  const bool foregroundBlack = ReaderUtils::readerForegroundBlack();
+  bool hasInk = false;
+  for (int y = hintTop; y < screenHeight && !hasInk; ++y) {
+    for (int x = 0; x < screenWidth; ++x) {
+      if (renderer.isPixelBlack(x, y) == foregroundBlack) {
+        hasInk = true;
+        break;
+      }
+    }
+  }
+  renderer.setOrientation(originalOrientation);
+  return hasInk;
+}
+
 }  // namespace
 
 ClipSelectionActivity::ClipSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -499,7 +520,9 @@ void ClipSelectionActivity::render(RenderLock&&) {
   const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  if (!mappedInput.hasTouchHardware() && !pageUsesButtonHintBand(renderer)) {
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  }
 
   renderer.displayBuffer();
 }

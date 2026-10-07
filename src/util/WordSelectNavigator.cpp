@@ -353,20 +353,22 @@ bool WordSelectNavigator::selectWordAtPoint(const int x, const int y, const int 
   if (rows.empty() || words.empty() || lineHeight <= 0) return false;
 
   const int horizontalPad = 6;
-  const int verticalPad = std::max(4, lineHeight / 4);
+
   int bestIdx = -1;
   int bestScore = INT_MAX;
 
   for (int idx = 0; idx < static_cast<int>(words.size()); idx++) {
     const auto& word = words[idx];
+    const int wordHeight = word.heightOr(lineHeight);
+    const int verticalPad = std::max(4, wordHeight / 4);
     const int left = static_cast<int>(word.screenX) - horizontalPad;
     const int right = static_cast<int>(word.screenX) + static_cast<int>(word.width) + horizontalPad;
     const int top = static_cast<int>(word.screenY) - verticalPad;
-    const int bottom = static_cast<int>(word.screenY) + lineHeight + verticalPad;
+    const int bottom = static_cast<int>(word.screenY) + wordHeight + verticalPad;
     if (x < left || x > right || y < top || y > bottom) continue;
 
     const int centerX = static_cast<int>(word.screenX) + static_cast<int>(word.width) / 2;
-    const int centerY = static_cast<int>(word.screenY) + lineHeight / 2;
+    const int centerY = static_cast<int>(word.screenY) + wordHeight / 2;
     const int score = std::abs(x - centerX) + std::abs(y - centerY);
     if (score < bestScore) {
       bestScore = score;
@@ -517,7 +519,7 @@ void WordSelectNavigator::drawSingleHighlight(const GfxRenderer& renderer, int l
                                               const bool foregroundBlack) const {
   const auto* w = getWordAt(wordIndex);
   if (!w) return;
-  renderer.fillRect(w->screenX - 2, w->screenY - 2, w->width + 4, lineHeight + 4, foregroundBlack);
+  renderer.fillRect(w->screenX - 2, w->screenY - 2, w->width + 4, w->heightOr(lineHeight) + 4, foregroundBlack);
   const char* displayedText = getDisplay(*w);
   const auto baseDir = w->isRtl ? BidiUtils::BidiBaseDir::RTL : BidiUtils::BidiBaseDir::LTR;
   if (w->focusBoundary > 0 && w->focusSuffixX > 0) {
@@ -549,7 +551,7 @@ void WordSelectNavigator::drawTouchDragCursor(const GfxRenderer& renderer, int l
   if (!w) return;
   const int x = w->screenX + w->width + 4;
   const int top = w->screenY - 2;
-  const int bottom = w->screenY + lineHeight + 1;
+  const int bottom = w->screenY + w->heightOr(lineHeight) + 1;
   renderer.drawLine(x, top, x, bottom, 2, foregroundBlack);
   renderer.drawLine(x - 2, top, x + 3, top, 2, foregroundBlack);
   renderer.drawLine(x - 2, bottom, x + 3, bottom, 2, foregroundBlack);
@@ -571,7 +573,7 @@ WordSelectNavigator::Rect WordSelectNavigator::boundsForWord(int wordIndex, int 
   if (!w) return Rect{};
   const int cursorWidth = touchDragCursorVisible ? 10 : 0;
   return Rect{static_cast<int>(w->screenX) - 2, static_cast<int>(w->screenY) - 2,
-              static_cast<int>(w->width) + 4 + cursorWidth, lineHeight + 4};
+              static_cast<int>(w->width) + 4 + cursorWidth, w->heightOr(lineHeight) + 4};
 }
 
 WordSelectNavigator::Rect WordSelectNavigator::computeDirtyRect(int prevWordIdx, int currWordIdx,

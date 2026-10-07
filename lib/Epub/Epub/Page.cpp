@@ -87,7 +87,8 @@ void PageImage::renderPlaceholder(GfxRenderer& renderer, const int xOffset, cons
 }
 
 bool PageImage::serialize(FsFile& file) {
-  if (!serialization::tryWritePod(file, xPos) || !serialization::tryWritePod(file, yPos)) {
+  if (!serialization::tryWritePod(file, xPos) || !serialization::tryWritePod(file, yPos) ||
+      !serialization::tryWritePod(file, static_cast<uint8_t>(inlineImage))) {
     LOG_ERR("PGE", "Serialization failed: could not write PageImage coordinates");
     return false;
   }
@@ -99,7 +100,9 @@ bool PageImage::serialize(FsFile& file) {
 std::unique_ptr<PageImage> PageImage::deserialize(FsFile& file) {
   int16_t xPos;
   int16_t yPos;
-  if (!serialization::tryReadPod(file, xPos) || !serialization::tryReadPod(file, yPos)) {
+  uint8_t inlineFlag;
+  if (!serialization::tryReadPod(file, xPos) || !serialization::tryReadPod(file, yPos) ||
+      !serialization::tryReadPod(file, inlineFlag) || inlineFlag > 1) {
     LOG_ERR("PGE", "Deserialization failed: truncated PageImage coordinates");
     return nullptr;
   }
@@ -110,7 +113,7 @@ std::unique_ptr<PageImage> PageImage::deserialize(FsFile& file) {
     return nullptr;
   }
 
-  auto* pageImage = new (std::nothrow) PageImage(std::move(ib), xPos, yPos);
+  auto* pageImage = new (std::nothrow) PageImage(std::move(ib), xPos, yPos, inlineFlag != 0);
   if (!pageImage) {
     LOG_ERR("PGE", "Deserialization failed: could not allocate PageImage");
     return nullptr;
@@ -349,7 +352,9 @@ bool Page::forEachTextLine(const PageTextLineVisitor visitor, void* context) con
 
     if (element->getTag() == TAG_PageLine) {
       const auto& line = static_cast<const PageLine&>(*element);
-      if (line.getBlock() && !visitor({line.getBlock().get(), line.xPos, line.yPos}, context)) {
+      if (line.getBlock() && !visitor({line.getBlock().get(), line.xPos, line.yPos, 0, 0, 0, 0,
+                                       line.getBlock()->getBlockStyle().lineHeight},
+                                      context)) {
         return false;
       }
       continue;
@@ -501,22 +506,32 @@ void Page::renderWithImagePlaceholders(GfxRenderer& renderer, const int fontId, 
   }
 }
 
-uint16_t Page::imageEstimateUnits(const uint16_t viewportHeight) const {
+uint16_t Page::imageEstimateUnits(const uint16_t viewportWidth, const uint16_t viewportHeight) const {
   bool hasImage = false;
+  bool hasBlockImage = false;
   bool hasReadableContent = false;
-  uint32_t imageHeight = 0;
+  uint64_t imageArea = 0;
   for (const auto& element : elements) {
     switch (element->getTag()) {
       case TAG_PageImage: {
         hasImage = true;
-        const auto& image = static_cast<const PageImage&>(*element).getImageBlock();
-        if (viewportHeight > 0) {
+        const auto& pageImage = static_cast<const PageImage&>(*element);
+        const auto& image = pageImage.getImageBlock();
+        hasBlockImage = hasBlockImage || !pageImage.isInlineImage();
+        if (viewportWidth > 0 && viewportHeight > 0) {
           const int imageTop = std::max(0, static_cast<int>(element->yPos));
           const int imageBottom =
               std::min(static_cast<int>(viewportHeight),
                        static_cast<int>(element->yPos) + std::max(0, static_cast<int>(image.getHeight())));
           if (imageBottom > imageTop) {
-            imageHeight += static_cast<uint32_t>(imageBottom - imageTop);
+            const uint32_t visibleHeight = static_cast<uint32_t>(imageBottom - imageTop);
+            // Inline icons occupy only part of a text line. Protect their
+            // approximate area instead of counting every icon as a full-width
+            // strip, which skews estimates for image-rich paragraphs.
+            const uint32_t countedWidth =
+                pageImage.isInlineImage() ? static_cast<uint32_t>(std::clamp<int>(image.getWidth(), 0, viewportWidth))
+                                          : viewportWidth;
+            imageArea += static_cast<uint64_t>(visibleHeight) * countedWidth;
           }
         }
         break;
@@ -531,10 +546,12 @@ uint16_t Page::imageEstimateUnits(const uint16_t viewportHeight) const {
   }
 
   if (!hasImage) return 0;
-  if (!hasReadableContent || viewportHeight == 0) return PageCountEstimator::kUnitsPerPage;
+  if ((!hasReadableContent && hasBlockImage) || viewportWidth == 0 || viewportHeight == 0)
+    return PageCountEstimator::kUnitsPerPage;
 
-  const uint32_t units = (imageHeight * PageCountEstimator::kUnitsPerPage) / viewportHeight;
-  return static_cast<uint16_t>(std::min<uint32_t>(PageCountEstimator::kUnitsPerPage, units));
+  const uint64_t units =
+      (imageArea * PageCountEstimator::kUnitsPerPage) / (static_cast<uint64_t>(viewportWidth) * viewportHeight);
+  return static_cast<uint16_t>(std::min<uint64_t>(PageCountEstimator::kUnitsPerPage, units));
 }
 
 bool Page::serialize(FsFile& file) const {

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <LibraryBuilder.h>
 #include <SdCardFontSystem.h>
 
 #include "MappedInputManager.h"
@@ -50,6 +51,7 @@ void UsbDriveActivity::onEnter() {
 }
 
 void UsbDriveActivity::onExit() {
+  library::invalidateLibraryIndex();
 #ifndef SIMULATOR
   if (!restartRequested) Storage.endUsbDrive();
 #endif

@@ -65,6 +65,13 @@ class CrossPointWebServer {
 
   WsUploadStatus getWsUploadStatus() const;
 
+  // Borrowed callback/context, owned by the activity that owns this server.
+  using UploadCancelCheck = bool (*)(void*);
+  void setUploadCancelCheck(UploadCancelCheck check, void* context) {
+    uploadCancelCheck = check;
+    uploadCancelContext = context;
+  }
+
   // Get the port number
   uint16_t getPort() const { return port; }
 
@@ -77,6 +84,11 @@ class CrossPointWebServer {
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
+  UploadCancelCheck uploadCancelCheck = nullptr;
+  void* uploadCancelContext = nullptr;
+  bool dropUploadIfCancelled() const;
+  void abortUpload(UploadState& state) const;
+  void abortFontUpload();
 
   // WebSocket upload state
   void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length);
@@ -110,6 +122,8 @@ class CrossPointWebServer {
   void handleSettingsPage() const;
   void handleGetSettings() const;
   void handlePostSettings();
+  void handleGetStatusBars() const;
+  void handlePostStatusBars();
 
   // Font management handlers
   void handleFontsPage() const;
@@ -124,7 +138,6 @@ class CrossPointWebServer {
     std::string familyName;
     std::string filePath;
     bool valid = false;
-    bool magicChecked = false;
     size_t bytesWritten = 0;
     static constexpr size_t BUFFER_SIZE = 4096;
     std::vector<uint8_t> buffer;

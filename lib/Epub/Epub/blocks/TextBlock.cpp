@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include "../../../ScalableFont/ScalableFontSizing.h"
+
 namespace {
 
 constexpr uint16_t MAX_WORDS_PER_TEXT_BLOCK = 512;
@@ -230,13 +232,18 @@ bool TextBlock::hasRuby() const {
   return false;
 }
 
-void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y,
+int TextBlock::resolvedFontId(const GfxRenderer& renderer, const int fontId) const {
+  return renderer.getFontIdForSize(fontId, blockStyle.fontSize);
+}
+
+void TextBlock::render(const GfxRenderer& renderer, int fontId, const int x, const int y,
                        const bool foregroundBlack) const {
   if (!isValid) {
     LOG_ERR("TXB", "Render skipped: invalid block");
     return;
   }
 
+  fontId = resolvedFontId(renderer, fontId);
   const bool scanning = renderer.isFontCacheScanning();
   const int ascender = renderer.getFontAscenderSize(fontId);
   for (uint16_t i = 0; i < numWords; i++) {
@@ -414,7 +421,9 @@ bool TextBlock::serialize(HalFile& file) const {
          serialization::tryWritePod(file, blockStyle.textIndent) &&
          serialization::tryWritePod(file, blockStyle.textIndentDefined) &&
          serialization::tryWritePod(file, blockStyle.isRtl) &&
-         serialization::tryWritePod(file, blockStyle.directionDefined);
+         serialization::tryWritePod(file, blockStyle.directionDefined) &&
+         serialization::tryWritePod(file, blockStyle.fontSize) &&
+         serialization::tryWritePod(file, blockStyle.lineHeight);
 }
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
@@ -520,7 +529,11 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
       !serialization::tryReadPod(file, blockStyle.textIndent) ||
       !serialization::tryReadPod(file, blockStyle.textIndentDefined) ||
       !serialization::tryReadPod(file, blockStyle.isRtl) ||
-      !serialization::tryReadPod(file, blockStyle.directionDefined)) {
+      !serialization::tryReadPod(file, blockStyle.directionDefined) ||
+      !serialization::tryReadPod(file, blockStyle.fontSize) ||
+      !serialization::tryReadPod(file, blockStyle.lineHeight) ||
+      (blockStyle.fontSize != 0 &&
+       (blockStyle.fontSize < ScalableContentMinPointSize || blockStyle.fontSize > ScalableContentMaxPointSize))) {
     LOG_ERR("TXB", "Deserialization failed: truncated block style metadata");
     return nullptr;
   }

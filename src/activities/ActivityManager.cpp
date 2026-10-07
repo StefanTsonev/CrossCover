@@ -1,5 +1,9 @@
 #include "ActivityManager.h"
 
+#if CROSSINK_SCALABLE_FONTS
+#include <HalScalableFont.h>
+#endif
+
 #include <CrossInkHalFrontlight.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
@@ -8,6 +12,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <Xtc.h>
 
 #include <algorithm>
 
@@ -25,20 +30,21 @@
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
 #include "home/RecentBookProgress.h"
-#include "home/RecentBooksActivity.h"
-#include "home/RecentBooksGridActivity.h"
+#include "library/LibraryActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
 #include "network/UsbDriveActivity.h"
 #include "reader/BookReadingStats.h"
 #include "reader/BookStatsActivity.h"
+#include "reader/BookStatsTracking.h"
 #include "reader/GlobalReadingStats.h"
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#include "util/SwipeAdjustment.h"
 #include "util/TwoFingerSwipe.h"
 
 namespace {
@@ -80,16 +86,23 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
   const bool lastValid = !APP_STATE.openEpubPath.empty() && FsHelpers::hasEpubExtension(APP_STATE.openEpubPath) &&
                          Storage.exists(APP_STATE.openEpubPath.c_str());
   context.activeReaderBook = hasFrontlightActiveReaderBook(activity.isReaderActivity(), currentBookValid);
+  context.showReadingStatsAction = SETTINGS.shouldTrackReadingStats();
   if (context.activeReaderBook) {
+    if (FsHelpers::hasEpubExtension(currentPath)) {
+      context.showReadingStatsAction =
+          BookStatsTracking::isEnabled(Epub::cachePathForFilePath(currentPath, "/.crosspoint"));
+    } else if (FsHelpers::hasXtcExtension(currentPath)) {
+      context.showReadingStatsAction = BookStatsTracking::isEnabled(Xtc(currentPath, "/.crosspoint").getCachePath());
+    }
     context.bookTitle = activity.getCurrentBookTitle();
     context.bookPath = currentPath;
     context.activeEpub = activity.isEpubReaderActivity() && currentEpubValid;
-    if (shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook) &&
-        activity.getFrontlightPanelBookDetails(context.bookDetails)) {
-      context.showReaderDetails = true;
+    if (activity.getFrontlightPanelBookDetails(context.bookDetails)) {
+      context.showReaderDetails =
+          shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook);
       context.bookTitle = context.bookDetails.title;
     }
-    context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
+    if (context.showReadingStatsAction) context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
     if (context.activeEpub) {
       context.bookPath = currentPath;
       return context;
@@ -97,19 +110,29 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     if (context.readingStatsActivity) return context;
   }
 
-  const FrontlightBookSource source = chooseFrontlightBookSource(false, false, lastValid);
+  const FrontlightBookSource source = chooseFrontlightBookSource(false, false, lastValid && !context.activeReaderBook);
 
+  // Transfer actions use the last EPUB even when reading stats are disabled.
+  if (source == FrontlightBookSource::LastBook) {
+    context.bookPath = APP_STATE.openEpubPath;
+    context.bookTitle = fileNameFromPath(context.bookPath);
+  }
+
+  if (!SETTINGS.shouldTrackReadingStats()) return context;
   const GlobalReadingStats global = GlobalReadingStats::load();
   std::string cachePath;
   std::string statsTitle;
   BookReadingStats bookStats;
   float progress = -1.0f;
   if (source == FrontlightBookSource::LastBook) {
-    context.bookPath = APP_STATE.openEpubPath;
-    context.bookTitle = fileNameFromPath(context.bookPath);
     statsTitle = context.bookTitle;
     cachePath = Epub::cachePathForFilePath(context.bookPath, "/.crosspoint");
-    bookStats = BookReadingStats::load(cachePath);
+    if (BookStatsTracking::isBookEnabled(cachePath))
+      bookStats = BookReadingStats::load(cachePath);
+    else {
+      cachePath.clear();
+      statsTitle = tr(STR_READING_STATS);
+    }
     const RecentBook book{context.bookPath, context.bookTitle, {}, {}};
     progress = RecentBookProgress::loadCachedEpubPercent(book);
   } else {
@@ -144,47 +167,23 @@ bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputM
   return true;
 }
 
-bool applyTwoFingerSwipeAction(Activity& activity, MappedInputManager& mappedInput, GfxRenderer& renderer,
-                               ActivityManager& activityManager) {
-  MappedInputManager::CompletedSwipe completed;
-  if (!mappedInput.wasCompletedMultiTouchSwipe(completed)) return false;
-
-  const TwoFingerSwipe::CompletedSwipe swipe = {completed.contactCount, completed.startX, completed.startY,
-                                                completed.endX,         completed.endY,   completed.durationMs};
-  const auto direction = TwoFingerSwipe::directionFor(swipe, renderer.getScreenWidth(), renderer.getScreenHeight());
-  uint8_t action = CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET;
-  switch (direction) {
-    case TwoFingerSwipe::Direction::Up:
-      action = SETTINGS.twoFingerSwipeUp;
-      break;
-    case TwoFingerSwipe::Direction::Down:
-      action = SETTINGS.twoFingerSwipeDown;
-      break;
-    case TwoFingerSwipe::Direction::Left:
-      action = SETTINGS.twoFingerSwipeLeft;
-      break;
-    case TwoFingerSwipe::Direction::Right:
-      action = SETTINGS.twoFingerSwipeRight;
-      break;
-    case TwoFingerSwipe::Direction::None:
-      return false;
-  }
-  if (action == CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET) return false;
-
+bool applyConfiguredSwipeAction(Activity& activity, ActivityManager& activityManager, const uint8_t action,
+                                const int lightAmount = 5, const bool persist = true) {
   switch (static_cast<CrossPointSettings::TWO_FINGER_SWIPE_ACTION>(action)) {
     case CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS:
     case CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS: {
       if (!Frontlight.present()) return true;
       const uint8_t previousBrightness = Frontlight.brightness();
       const bool previousOn = Frontlight.isOn();
-      const int delta = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ? 5 : -5;
+      const int delta = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ? lightAmount : -lightAmount;
       const uint8_t brightness =
           static_cast<uint8_t>(std::clamp(static_cast<int>(Frontlight.brightness()) + delta, 0, 100));
       Frontlight.setBrightness(brightness);
       Frontlight.setOn(true);
       SETTINGS.frontlightBrightness = brightness;
       SETTINGS.frontlightOn = 1;
-      if (brightness != previousBrightness || !previousOn) activityManager.persistGlobalSettings();
+      activity.onExternalFrontlightChange();
+      if (persist && (brightness != previousBrightness || !previousOn)) activityManager.persistGlobalSettings();
       return true;
     }
     case CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_WARMTH:
@@ -192,12 +191,14 @@ bool applyTwoFingerSwipeAction(Activity& activity, MappedInputManager& mappedInp
       if (!Frontlight.present() || !Frontlight.hasColorTemperature()) return true;
       const uint8_t previousWarmth = Frontlight.warmth();
       const bool previousOn = Frontlight.isOn();
-      const int delta = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_WARMTH ? 5 : -5;
+      const int delta = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_WARMTH ? lightAmount : -lightAmount;
       const uint8_t warmth = static_cast<uint8_t>(std::clamp(static_cast<int>(Frontlight.warmth()) + delta, 0, 100));
       Frontlight.setWarmth(warmth);
       SETTINGS.frontlightWarmth = warmth;
       SETTINGS.frontlightOn = Frontlight.isOn() ? 1 : 0;
-      if (warmth != previousWarmth || Frontlight.isOn() != previousOn) activityManager.persistGlobalSettings();
+      activity.onExternalFrontlightChange();
+      if (persist && (warmth != previousWarmth || Frontlight.isOn() != previousOn))
+        activityManager.persistGlobalSettings();
       return true;
     }
     case CrossPointSettings::TWO_FINGER_SWIPE_NEXT_CHAPTER:
@@ -213,6 +214,230 @@ bool applyTwoFingerSwipeAction(Activity& activity, MappedInputManager& mappedInp
   return true;
 }
 
+bool isLightSwipeAction(const uint8_t action) {
+  return action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+         action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS ||
+         action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_WARMTH ||
+         action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_WARMTH;
+}
+
+#if CROSSINK_APP_CAP_TOUCH
+void finishLiveLightSwipe(LiveLightSwipeState& state, ActivityManager& activityManager) {
+  if (state.changed) activityManager.persistGlobalSettings();
+  state = {};
+}
+
+void updateLiveLightSwipe(Activity& activity, ActivityManager& activityManager, LiveLightSwipeState& state,
+                          const int amount) {
+  const bool brightness = state.action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                          state.action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS;
+  const int sign = state.action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                           state.action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_WARMTH
+                       ? 1
+                       : -1;
+  const int target = SwipeAdjustment::targetValue(state.initialValue, sign > 0, amount);
+  const int current = brightness ? Frontlight.brightness() : Frontlight.warmth();
+  const int difference = sign * (target - current);
+  if (difference != 0 || (brightness && amount > 0 && !Frontlight.isOn()))
+    applyConfiguredSwipeAction(activity, activityManager, state.action, difference, false);
+  if (brightness && amount == 0 && Frontlight.isOn() != state.initialOn) {
+    Frontlight.setOn(state.initialOn);
+    SETTINGS.frontlightOn = state.initialOn ? 1 : 0;
+    activity.onExternalFrontlightChange();
+  }
+  state.changed = (brightness ? Frontlight.brightness() : Frontlight.warmth()) != state.initialValue ||
+                  Frontlight.isOn() != state.initialOn;
+}
+
+void cancelLiveLightSwipe(Activity& activity, ActivityManager& activityManager, LiveLightSwipeState& state) {
+  updateLiveLightSwipe(activity, activityManager, state, 0);
+  if (Frontlight.isOn() != state.initialOn) {
+    Frontlight.setOn(state.initialOn);
+    SETTINGS.frontlightOn = state.initialOn ? 1 : 0;
+    activity.onExternalFrontlightChange();
+  }
+  state.active = false;
+  state.blocked = true;
+  state.changed = false;
+}
+#endif
+
+uint8_t actionForTwoFingerDirection(const TwoFingerSwipe::Direction direction) {
+  switch (direction) {
+    case TwoFingerSwipe::Direction::Up:
+      return SETTINGS.twoFingerSwipeUp;
+    case TwoFingerSwipe::Direction::Down:
+      return SETTINGS.twoFingerSwipeDown;
+    case TwoFingerSwipe::Direction::Left:
+      return SETTINGS.twoFingerSwipeLeft;
+    case TwoFingerSwipe::Direction::Right:
+      return SETTINGS.twoFingerSwipeRight;
+    case TwoFingerSwipe::Direction::None:
+      return CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET;
+  }
+  return CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET;
+}
+
+#if CROSSINK_APP_CAP_TOUCH
+bool applyLiveTwoFingerLightSwipe(Activity& activity, MappedInputManager& mappedInput, GfxRenderer& renderer,
+                                  ActivityManager& activityManager, LiveLightSwipeState& state,
+                                  LiveLightSwipeState& edgeState) {
+  int x1 = 0;
+  int y1 = 0;
+  int x2 = 0;
+  int y2 = 0;
+  if (!mappedInput.getTwoFingerTouch(x1, y1, x2, y2)) {
+    if (!state.tracking) return false;
+    const bool consumed = state.active;
+    if (consumed) {
+      MappedInputManager::CompletedRotation rotation;
+      if (mappedInput.wasCompletedMultiTouchRotation(rotation)) {
+        cancelLiveLightSwipe(activity, activityManager, state);
+        state = {};
+        return false;  // Let the SDK's completed rotation keep its priority.
+      }
+      finishLiveLightSwipe(state, activityManager);
+    } else {
+      state = {};
+    }
+    return consumed;
+  }
+
+  mappedInput.resetEdgeSlide();
+  if (edgeState.active) finishLiveLightSwipe(edgeState, activityManager);
+  const int centerX = (x1 + x2) / 2;
+  const int centerY = (y1 + y2) / 2;
+  const TwoFingerSwipe::FingerPair rawCurrent = {x1, y1, x2, y2};
+  if (!state.tracking || state.owner != &activity) {
+    state = {};
+    state.owner = &activity;
+    state.tracking = true;
+    state.startX = centerX;
+    state.startY = centerY;
+    state.firstX = x1;
+    state.firstY = y1;
+    state.secondX = x2;
+    state.secondY = y2;
+    return false;
+  }
+
+  if (state.blocked) return false;
+  const TwoFingerSwipe::FingerPair start = {state.firstX, state.firstY, state.secondX, state.secondY};
+  const TwoFingerSwipe::FingerPair current = TwoFingerSwipe::alignedPair(start, rawCurrent);
+  if (!TwoFingerSwipe::hasTranslationGeometry(start, current)) {
+    if (state.active)
+      cancelLiveLightSwipe(activity, activityManager, state);
+    else
+      state.blocked = true;
+    return false;
+  }
+
+  if (!state.active) {
+    const TwoFingerSwipe::CompletedSwipe swipe = {2, state.startX, state.startY, centerX, centerY, 0};
+    const auto direction = TwoFingerSwipe::directionFor(swipe, renderer.getScreenWidth(), renderer.getScreenHeight());
+    const uint8_t action = actionForTwoFingerDirection(direction);
+    if (!isLightSwipeAction(action) || !TwoFingerSwipe::fingersMovedTogether(start, current, direction)) {
+      return false;
+    }
+    state.active = true;
+    state.action = action;
+    state.direction = static_cast<int>(direction);
+    state.vertical = direction == TwoFingerSwipe::Direction::Up || direction == TwoFingerSwipe::Direction::Down;
+    state.movementSign =
+        direction == TwoFingerSwipe::Direction::Up || direction == TwoFingerSwipe::Direction::Left ? -1 : 1;
+    state.initialOn = Frontlight.isOn();
+    state.initialValue = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                                 action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS
+                             ? Frontlight.brightness()
+                             : Frontlight.warmth();
+  }
+
+  const int displacement = state.movementSign * (state.vertical ? centerY - state.startY : centerX - state.startX);
+  const int axisSize = state.vertical ? renderer.getScreenHeight() : renderer.getScreenWidth();
+  updateLiveLightSwipe(activity, activityManager, state, SwipeAdjustment::amount(std::max(0, displacement), axisSize));
+  return true;
+}
+#endif
+
+bool applyTwoFingerSwipeAction(Activity& activity, MappedInputManager& mappedInput, const GfxRenderer& renderer,
+                               ActivityManager& activityManager) {
+  MappedInputManager::CompletedSwipe completed;
+  if (!mappedInput.wasCompletedMultiTouchSwipe(completed)) return false;
+
+  const TwoFingerSwipe::CompletedSwipe swipe = {completed.contactCount, completed.startX, completed.startY,
+                                                completed.endX,         completed.endY,   completed.durationMs};
+  const auto direction = TwoFingerSwipe::directionFor(swipe, renderer.getScreenWidth(), renderer.getScreenHeight());
+  const uint8_t action = actionForTwoFingerDirection(direction);
+  if (action == CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET) return false;
+  const bool vertical = direction == TwoFingerSwipe::Direction::Up || direction == TwoFingerSwipe::Direction::Down;
+  const int distance =
+      vertical ? std::abs(completed.endY - completed.startY) : std::abs(completed.endX - completed.startX);
+  const int axisSize = vertical ? renderer.getScreenHeight() : renderer.getScreenWidth();
+  return applyConfiguredSwipeAction(activity, activityManager, action, SwipeAdjustment::amount(distance, axisSize));
+}
+
+#if CROSSINK_APP_CAP_TOUCH
+bool applyEdgeSlideAction(Activity& activity, MappedInputManager& mappedInput, ActivityManager& activityManager,
+                          LiveLightSwipeState& state) {
+  MappedInputManager::EdgeSlideProgress progress;
+  if (!mappedInput.getEdgeSlideProgress(progress)) return false;
+  uint8_t action = CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET;
+  switch (progress.direction) {
+    case MappedInputManager::EdgeSlide::LeftUp:
+      action = SETTINGS.leftEdgeUp;
+      break;
+    case MappedInputManager::EdgeSlide::LeftDown:
+      action = SETTINGS.leftEdgeDown;
+      break;
+    case MappedInputManager::EdgeSlide::RightUp:
+      action = SETTINGS.rightEdgeUp;
+      break;
+    case MappedInputManager::EdgeSlide::RightDown:
+      action = SETTINGS.rightEdgeDown;
+      break;
+    case MappedInputManager::EdgeSlide::None:
+      break;
+  }
+  if (state.active) {
+    // Drifting inward ends the slide at its last applied value.
+    if (!progress.leftEdgeBand) {
+      const int amount = state.direction == static_cast<int>(progress.direction)
+                             ? SwipeAdjustment::amount(progress.distance, mappedInput.getRenderer().getScreenHeight())
+                             : 0;
+      updateLiveLightSwipe(activity, activityManager, state, amount);
+    }
+    if (progress.finished) {
+      mappedInput.suppressCurrentTouchContact();
+      finishLiveLightSwipe(state, activityManager);
+    }
+    return true;
+  }
+  if (action == CrossPointSettings::TWO_FINGER_SWIPE_NOT_SET) return false;
+  if (isLightSwipeAction(action)) {
+    state = {};
+    state.owner = &activity;
+    state.active = true;
+    state.action = action;
+    state.direction = static_cast<int>(progress.direction);
+    state.initialOn = Frontlight.isOn();
+    state.initialValue = action == CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_BRIGHTNESS ||
+                                 action == CrossPointSettings::TWO_FINGER_SWIPE_DECREASE_BRIGHTNESS
+                             ? Frontlight.brightness()
+                             : Frontlight.warmth();
+    updateLiveLightSwipe(activity, activityManager, state,
+                         SwipeAdjustment::amount(progress.distance, mappedInput.getRenderer().getScreenHeight()));
+    if (progress.finished) {
+      mappedInput.suppressCurrentTouchContact();
+      finishLiveLightSwipe(state, activityManager);
+    }
+    return true;
+  }
+  if (!progress.finished) return false;
+  mappedInput.suppressCurrentTouchContact();
+  return applyConfiguredSwipeAction(activity, activityManager, action);
+}
+#endif
+
 bool applyTwoFingerRotation(Activity& activity, MappedInputManager& mappedInput) {
   if (!SETTINGS.twoFingerRotationEnabled) return false;
   MappedInputManager::CompletedRotation completed;
@@ -224,6 +449,9 @@ bool applyTwoFingerRotation(Activity& activity, MappedInputManager& mappedInput)
 }  // namespace
 
 void ActivityManager::begin(const uint32_t renderTaskStackBytes) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess::configure(renderingMutex);
+#endif
 #if defined(configNUM_CORES) && configNUM_CORES > 1
   constexpr BaseType_t renderTaskCore = 1;
 #else
@@ -286,12 +514,31 @@ void ActivityManager::loop() {
     }
   }
 
+#if CROSSINK_APP_CAP_TOUCH
+  if (edgeLightSwipe.active && edgeLightSwipe.owner != currentActivity.get())
+    finishLiveLightSwipe(edgeLightSwipe, *this);
+  if (twoFingerLightSwipe.tracking && twoFingerLightSwipe.owner != currentActivity.get())
+    finishLiveLightSwipe(twoFingerLightSwipe, *this);
+#endif
+
   if (currentActivity) {
     mappedInput.setPowerAsConfirmInReaderMode(currentActivity->allowPowerAsConfirmInReaderMode());
 
     if (currentActivity->blocksGlobalInput()) {
+#if CROSSINK_APP_CAP_TOUCH
+      if (edgeLightSwipe.active) finishLiveLightSwipe(edgeLightSwipe, *this);
+      if (twoFingerLightSwipe.tracking) finishLiveLightSwipe(twoFingerLightSwipe, *this);
+#endif
+      mappedInput.resetEdgeSlide();
       currentActivity->loop();
     } else {
+#if CROSSINK_APP_CAP_TOUCH
+      if (currentActivity->name != "FrontlightPanel" &&
+          applyLiveTwoFingerLightSwipe(*currentActivity, mappedInput, renderer, *this, twoFingerLightSwipe,
+                                       edgeLightSwipe)) {
+        return;
+      }
+#endif
       // Completed two-finger gestures are recognized before normal one-finger
       // activity gestures. A rotation has priority over translation in the SDK,
       // so a contact sequence can trigger at most one action here.
@@ -304,6 +551,12 @@ void ActivityManager::loop() {
           applyTwoFingerSwipeAction(*currentActivity, mappedInput, renderer, *this)) {
         return;
       }
+
+#if CROSSINK_APP_CAP_TOUCH
+      if (applyEdgeSlideAction(*currentActivity, mappedInput, *this, edgeLightSwipe)) {
+        return;
+      }
+#endif
 
       // Frontlight quick panel: top-edge down-swipe on home-key boards, except
       // that the open EPUB reader exposes the same action across the whole page.
@@ -366,6 +619,10 @@ void ActivityManager::loop() {
           handler(pendingResult);
         }
 
+        // Continue an explicit Home/Reader unwind through each child using
+        // normal cancellation results. This lets every parent restore state.
+        if (pendingAction == PendingAction::None) continueHomeReaderUnwind();
+
         // Queue an update to ensure the popped activity gets re-rendered. A
         // partial-screen overlay first restores the full-screen activity below
         // it now that the result handler has finished reconciling settings.
@@ -396,6 +653,7 @@ void ActivityManager::loop() {
       RenderLock lock;
 
       if (pendingAction == PendingAction::Replace) {
+        pendingHomeReaderTarget = nullptr;
         // Destroy the current activity
         exitActivity(lock);
         // Clear the stack
@@ -450,6 +708,9 @@ void ActivityManager::loop() {
           }
         }
       }
+
+      // Resume a targeted reader unwind only after onEnter has completed.
+      if (pendingAction == PendingAction::None) continueHomeReaderUnwind();
 
       // onEnter may request another pending action, we will handle it in the next loop iteration
       continue;
@@ -510,6 +771,13 @@ bool ActivityManager::handleGlobalHomeGesture() {
     return false;
   }
 
+  // Touch-only devices use an edge swipe as a Home shortcut. Keep that
+  // shortcut separate from the X4 Pro's physical Back/Home key.
+  if (!mappedInput.hasHomeKey()) {
+    if (!currentActivity->handleHomeGesture()) goHome();
+    return true;
+  }
+
   return handleHomeButtonBackOrHome();
 }
 
@@ -519,6 +787,14 @@ bool ActivityManager::handleHomeButtonBackOrHome() {
   }
 
   if (currentActivity->handleHomeGesture()) {
+    return true;
+  }
+
+  if (!stackActivities.empty()) {
+    ActivityResult result;
+    result.isCancelled = true;
+    currentActivity->setResult(std::move(result));
+    popActivity();
     return true;
   }
 
@@ -655,6 +931,7 @@ bool ActivityManager::resumeFileTransferFromNetworkBoot(const uint32_t payload) 
 }
 
 void ActivityManager::goToNearbyStatsSync() {
+  if (!SETTINGS.shouldTrackReadingStats()) return;
   replaceActivity(std::make_unique<NearbyStatsSyncActivity>(renderer, mappedInput));
 }
 
@@ -675,12 +952,13 @@ void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
 }
 
-void ActivityManager::goToRecentBooks() {
-  if (SETTINGS.recentBooksView == CrossPointSettings::RECENT_BOOKS_GRID) {
-    replaceActivity(std::make_unique<RecentBooksGridActivity>(renderer, mappedInput));
-  } else {
-    replaceActivity(std::make_unique<RecentBooksActivity>(renderer, mappedInput));
+void ActivityManager::goToLibrary() {
+  auto library = makeUniqueNoThrow<LibraryActivity>(renderer, mappedInput);
+  if (!library) {
+    LOG_ERR("ACT", "Cannot allocate Library activity");
+    return;
   }
+  replaceActivity(std::move(library));
 }
 
 void ActivityManager::goToBrowser() {
@@ -740,8 +1018,30 @@ void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t
 void ActivityManager::goToSleep(bool fromTimeout) {
   const bool canSnapshotOverlay = currentActivity && currentActivity->canSnapshotForSleepOverlay();
   const GfxRenderer::Orientation sleepPopupOrientation = renderer.getOrientation();
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, canSnapshotOverlay, getCurrentBookPath(),
-                                                  fromTimeout, sleepPopupOrientation));
+  std::string currentBookPath = getCurrentBookPath();
+  auto sleepActivity = makeUniqueNoThrow<SleepActivity>(renderer, mappedInput, canSnapshotOverlay,
+                                                        std::move(currentBookPath), fromTimeout, sleepPopupOrientation);
+  const bool renderBeforeExit = currentActivity && sleepActivity && sleepActivity->rendersBeforeExit();
+  if (!sleepActivity) {
+    LOG_ERR("ACT", "Could not allocate sleep activity; saving outgoing activities before sleep");
+  }
+  if (renderBeforeExit || !sleepActivity) {
+    // Keep the outgoing render task from repainting over the sleep screen while
+    // onExit() flushes progress, stats and bookmarks to the card.
+    RenderLock lock;
+    TouchRegistry::getInstance().clear();
+    if (sleepActivity) sleepActivity->onEnter();
+    exitActivity(lock);
+    while (!stackActivities.empty()) {
+      stackActivities.back()->onExit();
+      stackActivities.pop_back();
+    }
+    pendingActivity.reset();
+    pendingAction = PendingAction::None;
+    currentActivity = std::move(sleepActivity);
+    return;
+  }
+  replaceActivity(std::move(sleepActivity));
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 
@@ -763,8 +1063,8 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, const HalDisplay::Ref
     const auto& activityName = currentActivity->name;
     if (activityName == "FileBrowser") {
       initialMenuItem = HomeMenuItem::FILE_BROWSER;
-    } else if (activityName == "RecentBooks") {
-      initialMenuItem = HomeMenuItem::RECENTS;
+    } else if (activityName == "Library") {
+      initialMenuItem = HomeMenuItem::LIBRARY;
     } else if (activityName == "OpdsBookBrowser") {
       initialMenuItem = HomeMenuItem::OPDS_BROWSER;
     } else if (activityName == "CrossPointWebServer") {
@@ -863,7 +1163,59 @@ bool ActivityManager::requestManualReaderRefresh() {
   return true;
 }
 
+bool ActivityManager::handleHomeReaderShortcut() {
+  // Consume repeated presses while a pop or replacement is already queued.
+  if (pendingAction != PendingAction::None || pendingHomeReaderTarget) return true;
+  if (!currentActivity || currentActivity->isHomeActivity()) return true;
+
+  if (currentActivity->isBookReaderActivity()) {
+    goHome();
+    return true;
+  }
+
+  const auto reader = std::find_if(stackActivities.rbegin(), stackActivities.rend(),
+                                   [](const auto& activity) { return activity && activity->isBookReaderActivity(); });
+  if (reader == stackActivities.rend()) {
+    goHome();
+    return true;
+  }
+
+  pendingHomeReaderTarget = reader->get();
+  ActivityResult result;
+  result.isCancelled = true;
+  currentActivity->setResult(std::move(result));
+  popActivity();
+  return true;
+}
+
+bool ActivityManager::continueHomeReaderUnwind() {
+  if (!pendingHomeReaderTarget) return false;
+  if (!currentActivity) {
+    pendingHomeReaderTarget = nullptr;
+    return false;
+  }
+  if (currentActivity.get() == pendingHomeReaderTarget) {
+    pendingHomeReaderTarget = nullptr;
+    return false;
+  }
+  if (pendingAction != PendingAction::None) return false;
+
+  const auto target = std::find_if(stackActivities.begin(), stackActivities.end(),
+                                   [this](const auto& activity) { return activity.get() == pendingHomeReaderTarget; });
+  if (target == stackActivities.end()) {
+    pendingHomeReaderTarget = nullptr;
+    return false;
+  }
+
+  ActivityResult result;
+  result.isCancelled = true;
+  currentActivity->setResult(std::move(result));
+  popActivity();
+  return true;
+}
+
 bool ActivityManager::handleShortcutAction(const CrossPointSettings::SHORT_PWRBTN action) {
+  if (action == CrossPointSettings::SHORT_PWRBTN::HOME_READER) return handleHomeReaderShortcut();
   return currentActivity && (currentActivity->isReaderActivity() || currentActivity->isHomeActivity()) &&
          currentActivity->handleShortcutAction(action);
 }
@@ -897,6 +1249,8 @@ void ActivityManager::endGlobalSettingsEdit() {
 }
 
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
+
+uint8_t ActivityManager::inputPollDelayMs() const { return currentActivity ? currentActivity->inputPollDelayMs() : 10; }
 
 std::string ActivityManager::getCurrentBookPath() const {
   if (currentActivity) {
@@ -991,15 +1345,12 @@ RequestUpdateResult ActivityManager::requestUpdateAndWait() {
 
 // RenderLock
 
-RenderLock::RenderLock() {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
+RenderLock::RenderLock(const Mode mode) {
+  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
+  assert(mode == Mode::Try || isLocked);
 }
 
-RenderLock::RenderLock([[maybe_unused]] Activity&) {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
-}
+RenderLock::RenderLock([[maybe_unused]] Activity&, const Mode mode) : RenderLock(mode) {}
 
 RenderLock::~RenderLock() {
   if (isLocked) {

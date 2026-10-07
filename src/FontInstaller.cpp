@@ -1,8 +1,12 @@
 #include "FontInstaller.h"
 
+#include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <SdCardFontSystem.h>
+#if CROSSINK_SCALABLE_FONTS
+#include <HalScalableFont.h>
+#endif
 
 #include <cctype>
 #include <cstring>
@@ -13,9 +17,49 @@ FontInstaller::FontInstaller(SdCardFontRegistry& registry) : registry_(registry)
 
 namespace {
 bool isSafeFontPathChar(const char c) {
-  return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == ' ' || c == '.' || c == '(' ||
-         c == ')';
+  return static_cast<unsigned char>(c) >= 0x80 || std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' ||
+         c == ' ' || c == '.' || c == '(' || c == ')';
 }
+#if CROSSINK_SCALABLE_FONTS
+// Match discovery names: folder names for grouped TTFs, metadata for loose files.
+// Scan skipped duplicate styles too, so they cannot reappear after deletion.
+bool deleteTtfFamily(const char* path, const char* family, const char* folderName = nullptr) {
+  HalFile dir = Storage.open(path);
+  if (!dir) return !Storage.exists(path);
+  char name[128];
+  while (true) {
+    HalFile entry = dir.openNextFile();
+    if (!entry) {
+      const bool ok = !FsHelpers::directoryIterationFailed(dir);
+      dir.close();
+      return ok;
+    }
+    const bool directory = entry.isDirectory();
+    entry.getName(name, sizeof(name));
+    entry.close();
+    if (name[0] == '.' || name[0] == '_') continue;
+    const std::string full = std::string(path) + "/" + name;
+    if (directory) {
+      if (!folderName && strcmp(name, family) == 0 && !deleteTtfFamily(full.c_str(), family, name)) {
+        dir.close();
+        return false;
+      }
+      continue;
+    }
+    const size_t length = strlen(name);
+    if (length < 5 || strcasecmp(name + length - 4, ".ttf") != 0) continue;
+    HalScalableFont::Info info;
+    bool unavailable = false;
+    const bool valid = HalScalableFont::inspectFile(full.c_str(), info, &unavailable);
+    const char* discoveredName = folderName ? folderName : info.family;
+    if (unavailable || (valid && strcmp(discoveredName, family) == 0 && !Storage.remove(full.c_str()))) {
+      LOG_ERR("FONT", "Cannot inspect/remove TTF: %s", full.c_str());
+      dir.close();
+      return false;
+    }
+  }
+}
+#endif
 }  // namespace
 
 bool FontInstaller::isValidFamilyName(const char* name) {
@@ -44,6 +88,14 @@ bool FontInstaller::isValidCpfontFilename(const char* name) {
   if (strchr(name, '/') != nullptr) return false;
   if (strchr(name, '\\') != nullptr) return false;
 
+#if CROSSINK_SCALABLE_FONTS
+  const size_t n = strlen(name);
+  if (n > 4 && strcasecmp(name + n - 4, ".ttf") == 0) {
+    for (const char* p = name; *p; ++p)
+      if (!isSafeFontPathChar(*p)) return false;
+    return true;
+  }
+#endif
   // Must end with ".cpfont" exactly.
   static constexpr char kExt[] = ".cpfont";
   static constexpr size_t kExtLen = sizeof(kExt) - 1;
@@ -96,6 +148,8 @@ bool FontInstaller::validateCpfontFile(const char* path) {
     return false;
   }
 
+  const size_t pathLength = strlen(path);
+  const bool ttf = pathLength > 4 && strcasecmp(path + pathLength - 4, ".ttf") == 0;
   uint8_t magic[CPFONT_MAGIC_LEN];
   size_t bytesRead = file.read(magic, CPFONT_MAGIC_LEN);
   file.close();
@@ -105,7 +159,14 @@ bool FontInstaller::validateCpfontFile(const char* path) {
     return false;
   }
 
-  if (memcmp(magic, "CPFONT\0\0", CPFONT_MAGIC_LEN) != 0) {
+#if CROSSINK_SCALABLE_FONTS
+  const bool staticTtf = memcmp(magic, "\0\1\0\0", 4) == 0 || memcmp(magic, "true", 4) == 0;
+  if (ttf && staticTtf) {
+    HalScalableFont::Info info;
+    return HalScalableFont::inspectFile(path, info);
+  }
+#endif
+  if (ttf || memcmp(magic, "CPFONT\0\0", CPFONT_MAGIC_LEN) != 0) {
     LOG_ERR("FONT", "Bad magic in: %s", path);
     return false;
   }
@@ -122,11 +183,26 @@ void FontInstaller::buildFontPath(const char* family, const char* filename, char
 }
 
 FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
-  if (!isValidFamilyName(familyName)) {
-    return Error::INVALID_FAMILY_NAME;
-  }
+  if (!isValidFamilyName(familyName)) return Error::INVALID_FAMILY_NAME;
   sdFontSystem.markRegistryDirty();
-
+#if CROSSINK_SCALABLE_FONTS
+  if (registry_.lastDiscoveryFailed()) return Error::SD_WRITE_ERROR;
+  const auto* scalable = registry_.findSummary(familyName);
+  if (scalable && scalable->isScalable()) {
+    const char* roots[] = {SdCardFontRegistry::FONTS_DIR_HIDDEN, SdCardFontRegistry::FONTS_DIR_VISIBLE};
+    for (const char* root : roots) {
+      char resolved[32];
+      if (FsHelpers::resolveRootDirectoryIgnoreCase(root, resolved, sizeof(resolved)) &&
+          !deleteTtfFamily(resolved, familyName))
+        return Error::SD_WRITE_ERROR;
+    }
+    if (strcmp(SETTINGS.sdFontFamilyName, familyName) == 0) {
+      SETTINGS.sdFontFamilyName[0] = '\0';
+      SETTINGS.saveToFile();
+    }
+    return Error::OK;
+  }
+#endif
   // A family may exist in either root (or, edge case, both). Remove from both.
   const char* roots[] = {SdCardFontRegistry::FONTS_DIR_HIDDEN, SdCardFontRegistry::FONTS_DIR_VISIBLE};
   bool removedAny = false;

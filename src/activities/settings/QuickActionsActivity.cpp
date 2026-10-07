@@ -18,6 +18,15 @@ constexpr StrId triggerLabels[] = {
     StrId::STR_TAP_HOME_SHORTCUT, StrId::STR_LONG_PRESS_HOME_SHORTCUT, StrId::STR_DOUBLE_TAP_HOME_SHORTCUT,
     StrId::STR_SIDE_BUTTON_CHORD};
 
+std::string triggerLabel(const QuickActions::Trigger trigger) {
+  const auto raw = static_cast<uint8_t>(trigger);
+  if (raw < std::size(triggerLabels)) return I18N.get(triggerLabels[raw]);
+  const bool up = trigger == QuickActions::Trigger::SideUpShort || trigger == QuickActions::Trigger::SideUpLong;
+  const bool longPress = trigger == QuickActions::Trigger::SideUpLong || trigger == QuickActions::Trigger::SideDownLong;
+  return std::string(up ? tr(STR_DIR_LEFT) : tr(STR_DIR_RIGHT)) + "/" + (up ? tr(STR_DIR_UP) : tr(STR_DIR_DOWN)) + " " +
+         (longPress ? tr(STR_LONG_PRESS_ACTION) : tr(STR_SHORT_PWR_BTN));
+}
+
 std::vector<QuickActions::Trigger> availableTriggers() {
   std::vector<QuickActions::Trigger> triggers = {QuickActions::Trigger::None, QuickActions::Trigger::ShortPower,
                                                  QuickActions::Trigger::LongPower, QuickActions::Trigger::PowerUp};
@@ -26,6 +35,10 @@ std::vector<QuickActions::Trigger> availableTriggers() {
     triggers.push_back(QuickActions::Trigger::UpDown);
   }
 #endif
+  triggers.push_back(QuickActions::Trigger::SideUpShort);
+  triggers.push_back(QuickActions::Trigger::SideUpLong);
+  triggers.push_back(QuickActions::Trigger::SideDownShort);
+  triggers.push_back(QuickActions::Trigger::SideDownLong);
   if (gpio.hasHomeKey()) {
     triggers.push_back(QuickActions::Trigger::TapHome);
     triggers.push_back(QuickActions::Trigger::LongPressHome);
@@ -79,8 +92,7 @@ void QuickActionsActivity::showOverview() {
   if (std::find(triggers.begin(), triggers.end(), draftTrigger) == triggers.end()) {
     draftTrigger = QuickActions::Trigger::None;
   }
-  rows.emplace_back(std::string(I18N.get(StrId::STR_SHORTCUT)) + ": " +
-                    I18N.get(triggerLabels[static_cast<uint8_t>(draftTrigger)]));
+  rows.emplace_back(std::string(I18N.get(StrId::STR_SHORTCUT)) + ": " + triggerLabel(draftTrigger));
   for (uint8_t i = 0; i < 5; ++i) {
     const uint8_t action = draftSlots[i];
     const char* label =
@@ -105,7 +117,7 @@ void QuickActionsActivity::editShortcut() {
   labels.reserve(triggers.size());
   uint8_t current = 0;
   for (uint8_t i = 0; i < triggers.size(); ++i) {
-    labels.emplace_back(I18N.get(triggerLabels[static_cast<uint8_t>(triggers[i])]));
+    labels.emplace_back(triggerLabel(triggers[i]));
     if (triggers[i] == draftTrigger) current = i;
   }
   popup.show(StrId::STR_SHORTCUT, labels, current, [this, triggers](int selected) {

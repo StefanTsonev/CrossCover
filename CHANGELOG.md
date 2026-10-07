@@ -9,6 +9,23 @@
 - LibGen search responses are bounded to the device limit, and visible results appear before their thumbnails load.
 - LibGen cover responses are converted to JPEG thumbnails before the device downloads them.
 
+## [v1.6.1-crosscover.1] - 2026-10-07
+
+### Added
+
+- Integrated the CrossInk v1.6.1 library, reader drawer, scalable-font, reading-statistics, status-bar, and navigation improvements.
+- Added the v1.6.1 book-library indexing, search, metadata sorting, and direct-access options while retaining CrossCover provider access.
+
+### Changed
+
+- Updated the firmware baseline and displayed version to CrossInk v1.6.1 / CrossCover 1.6.1-crosscover.1.
+- Adapted CrossCover's Hardcover reader action to the new EPUB reader drawer.
+
+### Fixed
+
+- Retained CrossCover Home, settings, and reader integrations alongside the new upstream activity structure.
+- Retained CrossCover branding in the device UI, documentation, and crash diagnostics.
+
 ## [v1.6.0-crosscover.2] - 2026-10-03
 
 ### Changed

@@ -121,16 +121,32 @@ h2 {
       overflow: auto;
       margin-bottom: 15px;
       border-radius: 6px;
+      /* Fixed height so the prev/next buttons stay put between images */
+      height: min(65vh, calc(90vh - 200px));
     }
 .image-preview-stage img {
       max-width: 100%;
-      max-height: 65vh;
+      max-height: 100%;
       object-fit: contain;
     }
 #imagePreviewDownload {
       display: inline-block;
       width: auto;
       text-decoration: none;
+    }
+.image-preview-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+.image-preview-actions button {
+      width: auto;
+      margin: 0;
+      font-size: 1.4em;
+      line-height: 1;
+    }
+.image-preview-actions.single button {
+      display: none;
     }
 .picker-columns.picker-active {
       display: flex;
@@ -1493,4 +1509,16 @@ h2 {
     }
 .log-summary-table .increased {
       color: #f39c12;
+    }
+
+.sort-button {
+      background: none;
+      border: 0;
+      color: inherit;
+      font: inherit;
+      font-weight: bold;
+      padding: 0;
+      margin: 0;
+      width: auto;
+      cursor: pointer;
     }

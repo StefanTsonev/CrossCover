@@ -5,6 +5,48 @@ h2 {
       font-weight: 600;
       letter-spacing: -0.01em;
     }
+.status-bar-editor {
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      margin: 14px 0;
+    }
+.status-bar-editor h3 {
+      margin: 0 0 8px;
+      color: var(--title-color);
+    }
+.status-bar-preview {
+      margin-top: 12px;
+      padding: 8px;
+      background: white;
+      color: black;
+      border: 1px solid var(--border-color);
+      font-size: 12px;
+    }
+.status-bar-preview-items {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+.status-bar-preview-items span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+.status-bar-preview-items span:nth-child(2) { text-align: center; }
+.status-bar-preview-items span:nth-child(3) { text-align: right; }
+.status-bar-preview-progress {
+      height: 3px;
+      margin: 3px 0;
+      background: #ddd;
+    }
+.status-bar-preview-progress span {
+      display: block;
+      width: 64%;
+      height: 100%;
+      background: black;
+    }
 .setting-row {
       display: flex;
       justify-content: space-between;

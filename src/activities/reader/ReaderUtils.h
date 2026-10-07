@@ -7,6 +7,8 @@
 #include <Logging.h>
 
 #include <algorithm>
+#include <cctype>
+#include <string_view>
 
 #include "GlobalActions.h"
 #include "MappedInputManager.h"
@@ -21,12 +23,16 @@ constexpr unsigned long GO_HOME_MS = 1000;
 // same gesture cannot drift apart between the two lists.
 constexpr unsigned long DELETE_HOLD_MS = 1000;
 constexpr uint8_t STATUS_BAR_TEXT_PADDING = 3;
-// Gap between the top clock status bar band and the first line of book text.
-// Signed so negative values pull the text up toward the clock (unsigned would wrap
-// a negative to a huge positive). Note the book-text top margin is
-// std::max(screenMarginVertical, reservedClockHeight + TOP_CLOCK_TEXT_PADDING), so this only
-// bites once reservedClockHeight + padding drops below the vertical-margin setting.
-constexpr int8_t TOP_CLOCK_TEXT_PADDING = 0;
+// Gap between the top reader bar and the first line of book text.
+constexpr int8_t TOP_STATUS_BAR_TEXT_PADDING = 0;
+
+inline bool isRtlBookLanguage(std::string_view tag) {
+  if (tag.size() < 2 || (tag.size() > 2 && tag[2] != '-' && tag[2] != '_')) return false;
+  const auto first = std::tolower(static_cast<unsigned char>(tag[0]));
+  const auto second = std::tolower(static_cast<unsigned char>(tag[1]));
+  return (first == 'h' && second == 'e') || (first == 'i' && second == 'w') || (first == 'a' && second == 'r') ||
+         (first == 'f' && second == 'a');
+}
 
 inline GfxRenderer::Orientation toRendererOrientation(const uint8_t orientation) {
   switch (orientation) {
@@ -52,7 +58,7 @@ inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
 // stays centered in every orientation instead of sitting at a fixed portrait offset.
 inline int messageCenterY(const GfxRenderer& renderer) { return renderer.getScreenHeight() / 2; }
 
-inline bool shouldShowTopClockStatusBar() { return halClock.isAvailable() && SETTINGS.shouldShowClockInReader(); }
+inline bool shouldShowTopStatusBar() { return UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top) > 0; }
 
 // Night Mode is applied by the display after normal-polarity reader content is
 // rendered. Keep this compatibility helper for existing reader call sites.
@@ -62,31 +68,30 @@ inline uint8_t readerBackgroundColor() { return readerDarkModeEnabled() ? 0x00 :
 
 inline bool readerForegroundBlack() { return true; }
 
-inline int getTopClockStatusBarHeight() {
-  if (!shouldShowTopClockStatusBar()) {
-    return 0;
-  }
-
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  return std::max(UITheme::getStatusBarHeight(), metrics.statusBarVerticalMargin);
-}
-
-inline int getTopClockStatusBarReservedHeight(const GfxRenderer& renderer) {
-  const int statusBarHeight = getTopClockStatusBarHeight();
+inline int getTopStatusBarReservedHeight(const GfxRenderer& renderer) {
+  const int statusBarHeight = UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top);
   if (statusBarHeight <= 0) {
     return 0;
   }
 
-  return UITheme::getInstance().getMetrics().topPadding + UITheme::getTopStatusBarInset(renderer) + statusBarHeight;
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  // Reader layout already includes the bezel margin; reserve only the remainder.
+  return std::max(0, UITheme::getTopStatusBarY(renderer) + statusBarHeight - top);
+}
+
+inline bool bottomStatusBarHasTextLane() {
+  return SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom).hasTextItems(halClock.isAvailable());
 }
 
 inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive) {
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  if (automaticPageTurnActive &&
-      (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
+  const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  if (automaticPageTurnActive && !bottomStatusBarHasTextLane()) {
+    const int autoTurnBarHeight =
+        readerStatusBarTotalHeight(ReaderStatusBarPosition::Bottom, true, UITheme::getProgressBarHeight(),
+                                   UITheme::getInstance().getMetrics().statusBarVerticalMargin);
     return std::max(static_cast<int>(SETTINGS.screenMarginVertical),
-                    static_cast<int>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin +
-                                     STATUS_BAR_TEXT_PADDING));
+                    std::max(statusBarHeight, autoTurnBarHeight) + STATUS_BAR_TEXT_PADDING);
   }
   return std::max(static_cast<int>(SETTINGS.screenMarginVertical),
                   static_cast<int>(statusBarHeight + STATUS_BAR_TEXT_PADDING));
@@ -95,6 +100,10 @@ inline int getReaderFooterReservedHeight(const bool automaticPageTurnActive) {
 inline uint8_t rotatedOrientation(const uint8_t orientation, const bool clockwise) {
   return clockwise ? (orientation + 1) % CrossPointSettings::ORIENTATION_COUNT
                    : (orientation + CrossPointSettings::ORIENTATION_COUNT - 1) % CrossPointSettings::ORIENTATION_COUNT;
+}
+
+inline uint8_t flippedOrientation(const uint8_t orientation) {
+  return (orientation + 2) % CrossPointSettings::ORIENTATION_COUNT;
 }
 
 struct PageTurnResult {
@@ -113,10 +122,12 @@ struct TouchPageTurn {
   unsigned long heldMs;
 };
 
-inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const MappedInputManager& input) {
+inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const MappedInputManager& input,
+                                         const bool rtlBook = false) {
 #if !CROSSINK_APP_CAP_TOUCH
   (void)renderer;
   (void)input;
+  (void)rtlBook;
   return {false, false, false, 0, 0, 0};
 #else
   TouchPageTurn result{false, false, false, 0, 0, 0};
@@ -139,8 +150,10 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
 
   const auto swipe = input.wasSwipe();
   if (swipe != MappedInputManager::SwipeDir::None) {
-    result.prev = swipe == MappedInputManager::SwipeDir::Right && allowsSwipe(SETTINGS.previousPageGesture);
-    result.next = swipe == MappedInputManager::SwipeDir::Left && allowsSwipe(SETTINGS.pageTurnGesture);
+    result.prev = swipe == (rtlBook ? MappedInputManager::SwipeDir::Left : MappedInputManager::SwipeDir::Right) &&
+                  allowsSwipe(SETTINGS.previousPageGesture);
+    result.next = swipe == (rtlBook ? MappedInputManager::SwipeDir::Right : MappedInputManager::SwipeDir::Left) &&
+                  allowsSwipe(SETTINGS.pageTurnGesture);
     return result;
   }
 
@@ -160,11 +173,11 @@ inline TouchPageTurn detectTouchPageTurn(const GfxRenderer& renderer, const Mapp
   }
 
   // Give the entire page tap area to the sole tap-enabled direction. When
-  // both accept taps, either Inverted Tap setting swaps their shared zones.
+  // both accept taps, RTL books and Inverted Tap each swap their shared zones.
   const bool nextTaps = allowsTap(SETTINGS.pageTurnGesture);
   const bool previousTaps = allowsTap(SETTINGS.previousPageGesture);
-  const bool invertedTaps = SETTINGS.pageTurnGesture == CrossPointSettings::INVERTED_TAP ||
-                            SETTINGS.previousPageGesture == CrossPointSettings::INVERTED_TAP;
+  const bool invertedTaps = (SETTINGS.pageTurnGesture == CrossPointSettings::INVERTED_TAP ||
+                             SETTINGS.previousPageGesture == CrossPointSettings::INVERTED_TAP) != rtlBook;
   const bool nextZone = invertedTaps ? x < (width * 2) / 3 : x >= width / 3;
   result.next = nextTaps && (!previousTaps || nextZone);
   result.prev = previousTaps && (!nextTaps || !nextZone);
@@ -180,10 +193,8 @@ inline bool isBottomStatusBarTap(const GfxRenderer& renderer, const int y, const
 }
 
 inline bool isTopStatusBarTap(const GfxRenderer& renderer, const int y, const int statusBarHeight) {
-  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
-  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
-                                   &orientedMarginLeft);
-  return ReaderStatusBarTapTarget::containsTop(y, renderer.getScreenHeight(), orientedMarginTop, statusBarHeight);
+  return ReaderStatusBarTapTarget::containsTop(y, renderer.getScreenHeight(), UITheme::getTopStatusBarY(renderer),
+                                               statusBarHeight);
 }
 
 // Reader menu opens on its board-specific vertical swipe anywhere on the open
@@ -203,15 +214,8 @@ inline bool isTouchMenuDismissGesture(const MappedInputManager& input) {
 }
 
 inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
-  // Side buttons fire on press only when long-press action is OFF (nothing to detect).
-  const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
-
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
-  const bool sidePrev = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageBack)
-                                     : input.wasReleased(MappedInputManager::Button::PageBack);
-  const bool sideNext = sideUsePress ? input.wasPressed(MappedInputManager::Button::PageForward)
-                                     : input.wasReleased(MappedInputManager::Button::PageForward);
 
   const bool frontPrev = input.wasReleased(MappedInputManager::Button::Left);
   const bool powerReleased = input.wasReleased(MappedInputManager::Button::Power);
@@ -222,9 +226,8 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool powerTurn = shortPowerTurn || longPowerTurn;
   const bool frontNext = input.wasReleased(MappedInputManager::Button::Right) || powerTurn;
 
-  // fromSideBtn is true when only side buttons contributed to this page turn.
-  const bool fromSide = (sidePrev || sideNext) && !(frontPrev || frontNext);
-  return {tiltPrev || sidePrev || frontPrev, tiltNext || sideNext || frontNext, fromSide, tiltPrev || tiltNext};
+  // Side-button actions are resolved by SideButtonShortcuts in each reader.
+  return {tiltPrev || frontPrev, tiltNext || frontNext, false, tiltPrev || tiltNext};
 }
 
 // One helper, blocking or deferred: the async form starts the refresh and

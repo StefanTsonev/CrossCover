@@ -7,7 +7,7 @@
 #endif
 
 #ifndef CROSSINK_DISPLAY_VERSION
-#define CROSSINK_DISPLAY_VERSION "1.6.0-crosscover.2"
+#define CROSSINK_DISPLAY_VERSION "1.6.1-crosscover.1"
 #endif
 
 #ifndef CROSSINK_GIT_SHA
@@ -17,6 +17,14 @@
 #ifndef CROSSINK_GIT_DIRTY
 #define CROSSINK_GIT_DIRTY "unknown"
 #endif
+
+namespace AppVersion {
+const char* version();
+const char* versionLabel();
+const char* userAgent();
+const char* gitSha();
+const char* gitDirtyFlag();
+}  // namespace AppVersion
 
 #ifndef CROSSINK_BUILD_ENV
 #define CROSSINK_BUILD_ENV "unknown"

@@ -15,6 +15,9 @@ class BookMetadataCache {
     std::string title;
     std::string author;
     std::string language;
+    // Used by the Library metadata-only scan; the reader cache format remains unchanged.
+    std::string series;
+    std::string subject;
     std::string coverItemHref;
     std::string textReferenceHref;
   };

@@ -274,7 +274,7 @@ void EpubReaderPercentSelectionActivity::loop() {
   }
 
   // A long-press Confirm already fired this press: swallow input until it's physically
-  // released (same hold-to-act pattern used elsewhere in this codebase, e.g. RecentBooksActivity).
+  // released so the next press starts cleanly.
   if (confirmLongPressFired) {
     if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
       confirmLongPressFired = false;
@@ -537,8 +537,10 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   uiReady = true;
 
   // Button hints follow the current front button layout and auto-hide on touch devices.
-  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_LEFT),
-                                            tr(STR_DIR_RIGHT));
+  const bool percentSlider = mode == Mode::Percent && !isKeypadVisible();
+  const auto labels =
+      mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT),
+                            percentSlider ? "-1" : tr(STR_DIR_LEFT), percentSlider ? "+1" : tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
 
   renderer.displayBuffer();

@@ -94,3 +94,13 @@ std::string buildUrl(const std::string& serverUrl, const std::string& path) {
 }
 
 }  // namespace UrlUtils
+
+std::string UrlUtils::forLog(const std::string& url) {
+  std::string safe = url.substr(0, url.find_first_of("?#"));
+  const auto scheme = safe.find("://");
+  const auto start = scheme == std::string::npos ? 0 : scheme + 3;
+  const auto end = safe.find('/', start);
+  const auto at = safe.rfind('@', end == std::string::npos ? safe.size() : end);
+  if (at != std::string::npos && at >= start) safe.erase(start, at - start + 1);
+  return safe;
+}

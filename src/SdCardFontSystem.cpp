@@ -1,4 +1,8 @@
 #include "SdCardFontSystem.h"
+#if CROSSINK_SCALABLE_FONTS
+#include <HalScalableFont.h>
+#include <ScalableBuiltins.h>
+#endif
 
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -9,10 +13,12 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#if CROSSINK_SCALABLE_FONTS
+#include "TtfRenderProfileStore.h"
+#endif
 #include "fontIds.h"
 
 namespace {
-
 struct UiFontSize {
   int fontId;
   uint8_t pointSize;
@@ -114,8 +120,22 @@ void SdCardFontSystem::begin(GfxRenderer& renderer) {
     return;
   }
 
+#if CROSSINK_SCALABLE_FONTS
+  LOG_DBG("SDFS", "SD font resolver ready; selected font load deferred until requested");
+#else
+  // C3 bitmap fonts retain their existing load timing and memory budget.
   ensureLoaded(renderer);
   releaseRegistry();
+#endif
+}
+
+int SdCardFontSystem::ensureBuiltInReaderFont(GfxRenderer& renderer) {
+#if CROSSINK_SCALABLE_FONTS
+  ensureScalableBuiltinFamily(renderer, SETTINGS.fontFamily == CrossPointSettings::BITTER ? 1 : 0);
+#else
+  (void)renderer;
+#endif
+  return SETTINGS.getBuiltInReaderFontId();
 }
 
 void SdCardFontSystem::persistSettingsChange() const {
@@ -127,6 +147,9 @@ void SdCardFontSystem::persistSettingsChange() const {
 }
 
 void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
   // If the web server (or another task) installed/deleted fonts, re-discover.
   // Track whether we just re-discovered so we can force a reload below even
   // when the wanted family/size still maps to the same point size — the file
@@ -143,20 +166,33 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
       manager_.unloadAll(renderer);
       loadedFontPointSize_ = 0;
     }
+#if CROSSINK_SCALABLE_FONTS
+    ensureBuiltInReaderFont(renderer);
+#endif
     return;
   }
 
-  if (!registryWasDirty && currentFamily == wantedFamily && loadedFontPointSize_ == targetPointSize &&
-      SETTINGS.legacySdFontSizeStep == UINT8_MAX) {
+  if (!registryWasDirty && !manager_.hasTemporaryScalableFamily() && currentFamily == wantedFamily &&
+      loadedFontPointSize_ == targetPointSize && SETTINGS.legacySdFontSizeStep == UINT8_MAX) {
     return;
   }
 
   ensureRegistry();
-  if (registry_.lastDiscoveryFailed()) return;
+  if (registry_.lastDiscoveryFailed()) {
+#if CROSSINK_SCALABLE_FONTS
+    ensureBuiltInReaderFont(renderer);
+#endif
+    return;
+  }
   registryWasDirty = registryWasDirty || fontReloadPending_ || loadedRegistryRevision_ != registry_.revision();
 
   const auto* family = registry_.findFamily(wantedFamily);
-  if (family && !family->ensureDetails()) return;
+  if (family && !family->ensureDetails()) {
+#if CROSSINK_SCALABLE_FONTS
+    ensureBuiltInReaderFont(renderer);
+#endif
+    return;
+  }
   if (family && SETTINGS.legacySdFontSizeStep != UINT8_MAX) {
     const auto sizes = family->availableSizes();
     if (!sizes.empty()) {
@@ -179,39 +215,98 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
       manager_.unloadAll(renderer);
       SETTINGS.sdFontFamilyName[0] = '\0';
       persistSettingsChange();
+#if CROSSINK_SCALABLE_FONTS
+      ensureBuiltInReaderFont(renderer);
+#endif
       return;
     }
     const auto* wantedFile = family->findClosestFile(targetPointSize);
-    uint8_t wantedPt = wantedFile ? wantedFile->pointSize : 0;
-    if (!registryWasDirty && wantedPt == manager_.currentPointSize()) return;
+    uint8_t wantedPt = family->isScalable() ? targetPointSize : (wantedFile ? wantedFile->pointSize : 0);
+    if (!registryWasDirty && !manager_.hasTemporaryScalableFamily() && wantedPt == manager_.currentPointSize()) return;
     LOG_DBG("SDFS", "Reloading %s: size %u -> %u (target %u)%s", wantedFamily, manager_.currentPointSize(), wantedPt,
             targetPointSize, registryWasDirty ? " [registry dirty]" : "");
   }
 
-  if (!currentFamily.empty()) {
+  if (!currentFamily.empty() && (!family || !family->isScalable() || !familyMatches || registryWasDirty)) {
     manager_.unloadAll(renderer);
   }
 
   if (family) {
-    if (manager_.loadFamilyClosest(*family, renderer, targetPointSize)) {
+#if CROSSINK_SCALABLE_FONTS
+    const auto options = family->isScalable() ? ttfRenderOptions(TTF_RENDER_PROFILES.profileFor(wantedFamily))
+                                              : freeink::font::FtFont::RenderOptions{};
+    const bool loaded = family->isScalable() ? manager_.loadFamilyClosest(*family, renderer, targetPointSize, options)
+                                             : manager_.loadFamilyClosest(*family, renderer, targetPointSize);
+#else
+    const bool loaded = manager_.loadFamilyClosest(*family, renderer, targetPointSize);
+#endif
+    if (loaded) {
       loadedFontPointSize_ = targetPointSize;
       fontReloadPending_ = false;
       loadedRegistryRevision_ = registry_.revision();
       setupUiFallbacks(renderer);
       LOG_DBG("SDFS", "Loaded SD font family: %s", wantedFamily);
     } else {
-      LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", wantedFamily);
-      SETTINGS.sdFontFamilyName[0] = '\0';
-      persistSettingsChange();
+      LOG_ERR("SDFS", "Failed to load SD font family: %s (preserving selection)", wantedFamily);
+#if CROSSINK_SCALABLE_FONTS
+      ensureBuiltInReaderFont(renderer);
+#endif
     }
   } else {
     LOG_DBG("SDFS", "SD font family not found: %s (clearing)", wantedFamily);
     SETTINGS.sdFontFamilyName[0] = '\0';
     persistSettingsChange();
+#if CROSSINK_SCALABLE_FONTS
+    ensureBuiltInReaderFont(renderer);
+#endif
   }
 }
 
+bool SdCardFontSystem::isScalableFamily(const char* familyName) {
+#if CROSSINK_SCALABLE_FONTS
+  if (!familyName || !familyName[0]) return false;
+  ensureRegistry();
+  const auto* family = registry_.findFamily(familyName);
+  return family && family->ensureDetails() && family->isScalable();
+#else
+  (void)familyName;
+  return false;
+#endif
+}
+
+bool SdCardFontSystem::fontUsesMonochromeRaster(const GfxRenderer& renderer, const int fontId,
+                                                const char* familyName) const {
+#if CROSSINK_SCALABLE_FONTS
+  return renderer.isSdCardFont(fontId) && hasResidentScalableFamily(familyName) &&
+         TTF_RENDER_PROFILES.profileFor(familyName).raster != 0;
+#else
+  (void)renderer;
+  (void)fontId;
+  (void)familyName;
+  return false;
+#endif
+}
+
+bool SdCardFontSystem::reloadActiveScalableFamily(GfxRenderer& renderer, const char* familyName) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+  if (!hasResidentScalableFamily(familyName)) return false;
+  const auto options = ttfRenderOptions(TTF_RENDER_PROFILES.profileFor(familyName));
+  if (!manager_.setScalableRenderOptions(renderer, options)) return false;
+  setupUiFallbacks(renderer);
+  scalableRenderOptionsGeneration_++;
+  return true;
+#else
+  (void)renderer;
+  (void)familyName;
+  return false;
+#endif
+}
+
 void SdCardFontSystem::releaseLoadedFont(GfxRenderer& renderer) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
   if (manager_.currentFamilyName().empty()) return;
 
   const std::string familyName = manager_.currentFamilyName();
@@ -228,8 +323,7 @@ void SdCardFontSystem::ensureRegistry() {
   if (dirty) LOG_DBG("SDFS", "Registry dirty — re-discovering fonts");
   registry_.loadNames();
   if (registry_.lastDiscoveryFailed()) {
-    LOG_ERR("SDFS", "SD font registry scan ran out of memory (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+    LOG_ERR("SDFS", "SD font registry scan failed (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     registryDirty_.store(true, std::memory_order_release);
     return;
   }
@@ -244,6 +338,9 @@ void SdCardFontSystem::releaseRegistry() {
 }
 
 void SdCardFontSystem::releaseForNetwork(GfxRenderer& renderer) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
   releaseLoadedFont(renderer);
 
   releaseRegistry();
@@ -345,6 +442,9 @@ uint8_t SdCardFontSystem::resolveLegacySizeStep(const char* familyName, const ui
 
 DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& renderer, const char* familyName,
                                                                   uint8_t targetPointSize) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
   // A non-zero size with no dedicated family means "use the reader's installed
   // family at this size". This keeps the setting useful when the same custom
   // family is wanted for reading and definitions without keeping two families
@@ -356,15 +456,23 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
     return {restoreReaderFont(renderer), false};
   }
 
+#if CROSSINK_SCALABLE_FONTS
+  ensureRegistry();
+  if (const auto* family = registry_.findFamily(familyName); family && family->isScalable()) {
+    const uint8_t size = targetPointSize ? targetPointSize : SETTINGS.getSdFontTargetPointSize();
+    const auto options = ttfRenderOptions(TTF_RENDER_PROFILES.profileFor(familyName));
+    if (manager_.loadDictionaryFamily(*family, renderer, size, options)) return {manager_.getFontId(familyName), true};
+    return {restoreReaderFont(renderer), false};
+  }
+#endif
   MemoryBudget::logHeapShape("dict.font_before_activate");
   char path[160] = {};
   uint8_t selectedPointSize = 0;
   // Prefer the actual loaded reader-file size. Built-in readers have no SD
   // file, so use their effective physical point size instead.
   if (targetPointSize == 0) {
-    targetPointSize = manager_.currentPointSize() != 0
-                          ? manager_.currentPointSize()
-                          : CrossPointSettings::getReaderFontPointSize(SETTINGS.getEffectiveReaderFontSize());
+    targetPointSize = manager_.currentPointSize() != 0 ? manager_.currentPointSize()
+                                                       : closestBuiltinReaderPointSize(SETTINGS.readerFontPointSize);
   }
   if (!findInstalledFontFile(familyName, targetPointSize, FontFileSelection::Closest, path, sizeof(path),
                              selectedPointSize)) {
@@ -440,14 +548,29 @@ DictionaryFontActivation SdCardFontSystem::activateDictionaryFont(GfxRenderer& r
 }
 
 int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
   const char* familyName = SETTINGS.sdFontFamilyName;
   if (!familyName || familyName[0] == '\0') {
     if (!manager_.currentFamilyName().empty()) manager_.unloadAll(renderer);
     loadedFontPointSize_ = 0;
     MemoryBudget::logHeapShape("dict.font_after_restore");
-    return SETTINGS.getBuiltInReaderFontId();
+    return ensureBuiltInReaderFont(renderer);
   }
 
+#if CROSSINK_SCALABLE_FONTS
+  ensureRegistry();
+  if (const auto* family = registry_.findFamily(familyName); family && family->isScalable()) {
+    const auto options = ttfRenderOptions(TTF_RENDER_PROFILES.profileFor(familyName));
+    if (manager_.loadFamilyClosest(*family, renderer, SETTINGS.getSdFontTargetPointSize(), options)) {
+      loadedFontPointSize_ = SETTINGS.getSdFontTargetPointSize();
+      setupUiFallbacks(renderer);
+      return manager_.getFontId(familyName);
+    }
+    return ensureBuiltInReaderFont(renderer);
+  }
+#endif
   char path[160] = {};
   uint8_t selectedPointSize = 0;
   if (!findInstalledFontFile(familyName, SETTINGS.getSdFontTargetPointSize(), FontFileSelection::Closest, path,
@@ -456,7 +579,7 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
     if (!manager_.currentFamilyName().empty()) manager_.unloadAll(renderer);
     loadedFontPointSize_ = 0;
     MemoryBudget::logHeapShape("dict.font_after_restore");
-    return SETTINGS.getBuiltInReaderFontId();
+    return ensureBuiltInReaderFont(renderer);
   }
 
   if (manager_.currentFamilyName() != familyName || manager_.currentPointSize() != selectedPointSize) {
@@ -464,7 +587,7 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
     if (!manager_.loadFamilyFile(path, familyName, selectedPointSize, renderer)) {
       LOG_ERR("SDFS", "Failed to restore reader font: %s", familyName);
       MemoryBudget::logHeapShape("dict.font_after_restore");
-      return SETTINGS.getBuiltInReaderFontId();
+      return ensureBuiltInReaderFont(renderer);
     }
     loadedFontPointSize_ = SETTINGS.getSdFontTargetPointSize();
     setupUiFallbacksDirect(renderer, familyName);
@@ -472,7 +595,7 @@ int SdCardFontSystem::restoreReaderFont(GfxRenderer& renderer) {
 
   const int fontId = manager_.getFontId(manager_.currentFamilyName());
   MemoryBudget::logHeapShape("dict.font_after_restore");
-  return fontId != 0 ? fontId : SETTINGS.getBuiltInReaderFontId();
+  return fontId != 0 ? fontId : ensureBuiltInReaderFont(renderer);
 }
 
 void SdCardFontSystem::markRegistryDirtyForPath(const char* path) {

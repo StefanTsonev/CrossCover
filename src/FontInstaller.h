@@ -33,7 +33,7 @@ class FontInstaller {
   bool ensureFamilyDir(const char* familyName);
 
   /// Validate a .cpfont file on disk (check magic bytes).
-  bool validateCpfontFile(const char* path);
+  static bool validateCpfontFile(const char* path);
 
   /// Build the full SD path for a font file.
   /// Writes "/<root>/<family>/<filename>" to outBuf, choosing <root> the same

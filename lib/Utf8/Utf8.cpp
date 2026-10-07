@@ -70,6 +70,14 @@ bool isLookupCoreCharacter(const uint32_t cp) {
 }
 }  // namespace
 
+uint32_t utf8DecomposedBase(const uint32_t cp) {
+  if (cp < 0x00C0) return 0;  // no precomposed Latin letter below this
+  for (int i = 0; i < kUtf8ComposeTableSize; i++) {
+    if (kUtf8ComposeTable[i].composed == cp) return kUtf8ComposeTable[i].base;
+  }
+  return 0;
+}
+
 std::string utf8ComposeNfc(const std::string& in) {
   // Fast path: NFC composition can only change text that contains a combining
   // diacritical mark U+0300-036F (UTF-8 lead byte 0xCC or 0xCD) or conjoining
@@ -273,7 +281,7 @@ int utf8SafeTruncateBuffer(const char* buf, int len) {
   int expectedLen = utf8CodepointLen(static_cast<unsigned char>(buf[leadPos]));
   int actualLen = len - leadPos;
 
-  if (actualLen < expectedLen && leadPos > 0) {
+  if (actualLen < expectedLen) {
     // Incomplete UTF-8 sequence at the end — exclude it
     return leadPos;
   }

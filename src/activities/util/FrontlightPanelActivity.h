@@ -39,12 +39,16 @@ class FrontlightPanelActivity final : public Activity {
   bool initialInversion = false;
   bool initialTouchscreenDisabled = false;
   bool pendingTouchscreenDisabled = false;
+  bool ttfRenderingChanged = false;
   // Swallow the swipe/tap fallout of a slider drag so its release can't
   // trigger the back gesture and close the panel mid-adjustment.
   bool draggingSlider = false;
   // Bottom edge of the drop-down (px). Content lays out above it and the
   // handle occupies its final band. Set by render() before the app lays out.
   int panelBottom = 0;
+  int16_t panelRowHeight = 0;
+  int16_t panelSpaceSm = 0;
+  int16_t panelSpaceLg = 0;
   freeink::ui::Rect drawerHandleRect{};
   std::vector<std::string> readerTitleLines;
 
@@ -63,7 +67,7 @@ class FrontlightPanelActivity final : public Activity {
   // Height of the drop-down, derived from the content it holds (header +
   // sliders + toggle). Same layout math as buildPanelScreen so the frame,
   // content margin, and dismiss threshold all agree.
-  int computePanelBottom() const;
+  int computePanelBottom();
   void prepareReaderDetailsLayout();
   void drawReaderDetails(freeink::ui::Screen<20>& screen);
   void adjustBrightness(int delta);
@@ -77,16 +81,28 @@ class FrontlightPanelActivity final : public Activity {
   void openReadingStats();
   void openGlobalSettings();
   void drawHeader();
+  bool showsBookProgress() const;
+  void drawBookProgress();
 
  public:
   explicit FrontlightPanelActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                    FrontlightPanelContext context = {});
   void onEnter() override;
   void onExit() override;
+  // Keep the visible sliders and exit-time save in sync with a global edge action.
+  void onExternalFrontlightChange() override;
   void loop() override;
   void render(RenderLock&&) override;
   // From an active reader, Home returns to the library; elsewhere it dismisses
   // the overlay back to the current screen.
   bool handleHomeGesture() override;
   bool requiresFreshBackdrop() const override { return true; }
+#ifdef SIMULATOR
+  freeink::ui::Rect simulatorHandleRect() const { return drawerHandleRect; }
+  Rect simulatorSyncOptionRect(const int index) const { return optionPopup.simulatorOptionRect(index); }
+  bool simulatorSyncOptionDisabled(const int index) const { return optionPopup.simulatorOptionDisabled(index); }
+  int simulatorContentBottom = 0;
+  int simulatorActionBarTop = 0;
+  void simulatorActivateQuickAction(int index) { activateQuickAction(index); }
+#endif
 };

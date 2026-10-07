@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include <cstddef>
+#include <memory>
 
 #if CROSSINK_APP_CAP_TOUCH
 #include <FreeInkApp.h>
@@ -14,6 +15,8 @@
 
 #include "MappedInputManager.h"
 #include "activities/Activity.h"
+#include "activities/reader/TouchReaderPreviewModel.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 class GfxRenderer;
@@ -21,6 +24,7 @@ class GfxRenderer;
 class IntervalSelectionActivity final : public Activity {
  public:
   using ValueFormatter = void (*)(int value, char* buf, size_t len);
+  enum class ReaderPreviewSetting : uint8_t { None, LineSpacing, WordSpacing, VerticalMargin, HorizontalMargin };
 
   explicit IntervalSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const char* activityName,
                                      StrId titleId, int initialValue, int minValue, int maxValue, int smallStep,
@@ -30,7 +34,8 @@ class IntervalSelectionActivity final : public Activity {
                                      StrId maxBoundaryLabelId = StrId::STR_NONE_OPT,
                                      bool overrideDisabledReaderTouchscreen = false,
                                      bool showTouchHeaderBackButton = false, ValueFormatter valueFormatter = nullptr,
-                                     int tapStep = 0, bool useReaderSlider = false);
+                                     int tapStep = 0, bool useReaderSlider = false,
+                                     ReaderPreviewSetting readerPreviewSetting = ReaderPreviewSetting::None);
 
   void onEnter() override;
   void onExit() override;
@@ -59,6 +64,9 @@ class IntervalSelectionActivity final : public Activity {
   ValueFormatter valueFormatter;
   int tapStep;
   bool useReaderSlider;
+  ReaderPreviewSetting readerPreviewSetting;
+  std::unique_ptr<SampleReaderPreviewModel> previewModel;
+  Rect readerPreviewArea{};
   bool draggingBar = false;
   ButtonNavigator buttonNavigator;
 
@@ -87,4 +95,5 @@ class IntervalSelectionActivity final : public Activity {
   int tappedValue(int candidate) const;
   bool usesTextTouchStepControls() const;
   void drawStepHintLine(int y, StrId labelId, int step);
+  void renderReaderPreview(const Rect& area);
 };

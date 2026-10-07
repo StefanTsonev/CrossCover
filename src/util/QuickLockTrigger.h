@@ -14,4 +14,8 @@ enum class QuickLockTrigger : uint8_t {
   HomeDoubleTap,
   HomeTap,
   HomeLongPress,
+  SideUpShort,
+  SideUpLong,
+  SideDownShort,
+  SideDownLong,
 };

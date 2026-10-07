@@ -89,3 +89,11 @@ TEST(HttpRedirectPolicy, RejectsUnsupportedRedirectSchemes) {
   EXPECT_TRUE(HttpRedirectPolicy::buildRedirectUrl("https://catalog.example.test/opds", "ftp://files.example.test/book")
                   .empty());
 }
+
+TEST(UrlLogPrivacy, HidesQueryFragmentAndCredentials) {
+  EXPECT_EQ(UrlUtils::forLog("https://user:password@example.com/book?token=secret#fragment"),
+            "https://example.com/book");
+  EXPECT_EQ(UrlUtils::forLog("https://example.com/book#secret"), "https://example.com/book");
+  EXPECT_EQ(UrlUtils::forLog("http://example.com/a@b.epub"), "http://example.com/a@b.epub");
+  EXPECT_EQ(UrlUtils::forLog("http://example.com/book"), "http://example.com/book");
+}

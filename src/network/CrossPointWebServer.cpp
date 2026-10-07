@@ -30,6 +30,7 @@
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
+#include "components/HeaderDate.h"
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -38,7 +39,9 @@
 #include "html/StyleCss.generated.h"
 #include "html/js/jszip_minJs.generated.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookMoveUtils.h"
 #include "util/FontFamilyLabel.h"
+#include "util/ReaderStatusBarJson.h"
 #include "util/StringUtils.h"
 
 namespace {
@@ -66,15 +69,29 @@ bool isTwoFingerSwipeSetting(const SettingInfo& setting) {
          setting.nameId == StrId::STR_TWO_FINGER_SWIPE_LEFT || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_RIGHT;
 }
 
+bool isSwipeActionSetting(const SettingInfo& setting) {
+  return isTwoFingerSwipeSetting(setting) || setting.nameId == StrId::STR_LEFT_EDGE_UP ||
+         setting.nameId == StrId::STR_LEFT_EDGE_DOWN || setting.nameId == StrId::STR_RIGHT_EDGE_UP ||
+         setting.nameId == StrId::STR_RIGHT_EDGE_DOWN;
+}
+
 bool isWebEnumOptionAvailable(const SettingInfo& setting, size_t optionIndex) {
   if (optionIndex >= setting.enumValues.size()) return true;
 
   const StrId option = setting.enumValues[optionIndex];
+  if (!SETTINGS.shouldTrackReadingStats()) {
+    if (option == StrId::STR_READING_STATS) return false;
+    if (setting.valuePtr == &CrossPointSettings::sleepScreen && optionIndex < setting.enumRawValues.size()) {
+      const uint8_t raw = setting.enumRawValues[optionIndex];
+      if (raw == CrossPointSettings::READING_STATS_SLEEP || raw == CrossPointSettings::MINIMAL_STATS_SLEEP)
+        return false;
+    }
+  }
   if (option == StrId::STR_TOGGLE_TOUCHSCREEN && !gpio.hasTouch()) return false;
 
   if (!Frontlight.present()) {
     if (option == StrId::STR_TOGGLE_FRONTLIGHT ||
-        (isTwoFingerSwipeSetting(setting) &&
+        (isSwipeActionSetting(setting) &&
          (option == StrId::STR_INCREASE_BRIGHTNESS || option == StrId::STR_DECREASE_BRIGHTNESS ||
           option == StrId::STR_INCREASE_WARMTH || option == StrId::STR_DECREASE_WARMTH))) {
       return false;
@@ -83,7 +100,7 @@ bool isWebEnumOptionAvailable(const SettingInfo& setting, size_t optionIndex) {
            setting.enumRawValues[optionIndex] != CrossPointSettings::REFRESH_NEVER;
   }
 
-  return Frontlight.hasColorTemperature() || !isTwoFingerSwipeSetting(setting) ||
+  return Frontlight.hasColorTemperature() || !isSwipeActionSetting(setting) ||
          (option != StrId::STR_INCREASE_WARMTH && option != StrId::STR_DECREASE_WARMTH);
 }
 
@@ -100,6 +117,9 @@ uint8_t enumDisplayIndexForWeb(const SettingInfo& setting, uint8_t rawValue) {
 }
 
 bool isWebSettingAvailable(const SettingInfo& setting) {
+  if (setting.category == StrId::STR_STATUS_BARS || setting.nameId == StrId::STR_HIDE_CLOCK) {
+    return false;
+  }
   if (setting.nameId == StrId::STR_SIDE_BUTTON_CHORD && !deviceSupportsSideButtonChord(gpio)) {
     return false;
   }
@@ -110,7 +130,9 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
       setting.nameId == StrId::STR_TAP_HIDE_STATUS_BAR || setting.nameId == StrId::STR_PINCH_FONT_RESIZE ||
       setting.nameId == StrId::STR_TWO_FINGER_ROTATION || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_UP ||
       setting.nameId == StrId::STR_TWO_FINGER_SWIPE_DOWN || setting.nameId == StrId::STR_TWO_FINGER_SWIPE_LEFT ||
-      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_RIGHT;
+      setting.nameId == StrId::STR_TWO_FINGER_SWIPE_RIGHT || setting.nameId == StrId::STR_LEFT_EDGE_UP ||
+      setting.nameId == StrId::STR_LEFT_EDGE_DOWN || setting.nameId == StrId::STR_RIGHT_EDGE_UP ||
+      setting.nameId == StrId::STR_RIGHT_EDGE_DOWN;
   if (isTouchSetting && !gpio.hasTouch()) {
     return false;
   }
@@ -377,6 +399,8 @@ void CrossPointWebServer::begin() {
   server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
   server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
   server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+  server->on("/api/status-bars", HTTP_GET, [this] { handleGetStatusBars(); });
+  server->on("/api/status-bars", HTTP_POST, [this] { handlePostStatusBars(); });
 
   // Font management endpoints
   server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
@@ -422,6 +446,34 @@ void CrossPointWebServer::begin() {
   // Show the correct IP based on network mode
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   LOG_DBG("WEB", "[MEM] Free heap after server.begin(): %d bytes", ESP.getFreeHeap());
+}
+
+bool CrossPointWebServer::dropUploadIfCancelled() const {
+  if (!uploadCancelCheck || !uploadCancelCheck(uploadCancelContext)) return false;
+  server->client().stop();
+  return true;
+}
+
+void CrossPointWebServer::abortUpload(UploadState& state) const {
+  state.success = false;
+  state.bufferPos = 0;
+  if (state.file) {
+    state.file.close();
+    String filePath = state.path;
+    if (!filePath.endsWith("/")) filePath += "/";
+    filePath += state.fileName;
+    Storage.remove(filePath.c_str());
+  }
+  state.error = "Upload aborted";
+  LOG_DBG("WEB", "Upload aborted");
+}
+
+void CrossPointWebServer::abortFontUpload() {
+  fontUpload.bufferPos = 0;
+  if (fontUpload.file) fontUpload.file.close();
+  if (!fontUpload.filePath.empty()) Storage.remove(fontUpload.filePath.c_str());
+  fontUpload.valid = false;
+  LOG_DBG("WEB", "Font upload aborted");
 }
 
 void CrossPointWebServer::abortWsUpload(const char* tag) {
@@ -599,7 +651,7 @@ void CrossPointWebServer::handleStatus() const {
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
 
   JsonDocument doc;
-  doc["version"] = CROSSINK_VERSION;
+  doc["version"] = AppVersion::version();
   doc["ip"] = ipAddr;
   doc["mode"] = apMode ? "AP" : "STA";
   doc["rssi"] = apMode ? 0 : WiFi.RSSI();
@@ -956,6 +1008,10 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     }
 
   } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (dropUploadIfCancelled()) {
+      abortUpload(state);
+      return;
+    }
     if (state.file && state.error.isEmpty()) {
       // Buffer incoming data and flush when buffer is full
       // This reduces SD card write operations and improves throughput
@@ -984,6 +1040,11 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       state.size += upload.currentSize;
     }
   } else if (upload.status == UPLOAD_FILE_END) {
+    // The final body chunk can produce END even after cancellation.
+    if (dropUploadIfCancelled()) {
+      abortUpload(state);
+      return;
+    }
     if (state.file) {
       // Flush any remaining buffered data
       if (!flushUploadBuffer(state)) {
@@ -1008,17 +1069,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
-    state.bufferPos = 0;  // Discard buffered data
-    if (state.file) {
-      state.file.close();
-      // Try to delete the incomplete file
-      String filePath = state.path;
-      if (!filePath.endsWith("/")) filePath += "/";
-      filePath += state.fileName;
-      Storage.remove(filePath.c_str());
-    }
-    state.error = "Upload aborted";
-    LOG_DBG("WEB", "Upload aborted");
+    abortUpload(state);
   }
 }
 
@@ -1191,21 +1242,36 @@ void CrossPointWebServer::handleRename() const {
     return;
   }
 
-  clearBookCache(itemPath.c_str());
-  const bool success = file.rename(newPath.c_str());
+  // Release the validation handle before migrating metadata and renaming the
+  // book; real SD cards cannot open the same path through multiple readers.
   file.close();
-
-  if (success) {
-    LOG_DBG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
-    ImageFolderIndex::invalidateForPath(itemPath.c_str());
-    sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
-    ImageFolderIndex::invalidateForPath(newPath.c_str());
-    sdFontSystem.markRegistryDirtyForPath(newPath.c_str());
-    server->send(200, "text/plain", "Renamed successfully");
-  } else {
-    LOG_ERR("WEB", "Failed to rename file: %s -> %s", itemPath.c_str(), newPath.c_str());
-    server->send(500, "text/plain", "Failed to rename file");
+  const auto migration = BookMoveUtils::renameFilePreservingBookState(itemPath.c_str(), newPath.c_str());
+  if (migration == BookMoveUtils::RenameMigrationResult::InvalidBookType) {
+    server->send(400, "text/plain", "Renaming a book cannot change its file type");
+    return;
   }
+  if (migration == BookMoveUtils::RenameMigrationResult::DestinationStateExists) {
+    server->send(409, "text/plain", "Target filename has saved reading data. Choose another filename.");
+    return;
+  }
+  if (migration == BookMoveUtils::RenameMigrationResult::RolledBack) {
+    LOG_ERR("WEB", "Failed to rename file while preserving reader state: %s -> %s", itemPath.c_str(), newPath.c_str());
+    server->send(500, "text/plain", "Could not rename file while preserving saved reading data");
+    return;
+  }
+
+  LOG_DBG("WEB", "Renamed file: %s -> %s", itemPath.c_str(), newPath.c_str());
+  ImageFolderIndex::invalidateForPath(itemPath.c_str());
+  sdFontSystem.markRegistryDirtyForPath(itemPath.c_str());
+  ImageFolderIndex::invalidateForPath(newPath.c_str());
+  sdFontSystem.markRegistryDirtyForPath(newPath.c_str());
+  if (migration == BookMoveUtils::RenameMigrationResult::KeepRenamed) {
+    LOG_ERR("WEB", "Rename kept new path after incomplete state rollback: %s", newPath.c_str());
+    server->send(500, "text/plain",
+                 "File was renamed, but some saved references could not be updated. Refresh the file list.");
+    return;
+  }
+  server->send(200, "text/plain", "Renamed successfully");
 }
 
 void CrossPointWebServer::handleMove() const {
@@ -1396,6 +1462,104 @@ void CrossPointWebServer::handleSettingsPage() const {
   sendStaticContent(server.get(), SettingsPageHtml, sizeof(SettingsPageHtml), SettingsPageHtmlETag);
 }
 
+void CrossPointWebServer::handleGetStatusBars() const {
+  JsonDocument doc;
+  writeReaderStatusBarJson(doc["top"].to<JsonObject>(), SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top));
+  writeReaderStatusBarJson(doc["bottom"].to<JsonObject>(), SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom));
+  doc["xtcMode"] = SETTINGS.xtcStatusBarMode;
+  doc["clockAvailable"] = halClock.isAvailable();
+  JsonArray displaySlots = doc["display"].to<JsonArray>();
+  for (const auto item : SETTINGS.displayStatusBar.slots) displaySlots.add(static_cast<uint8_t>(item));
+
+  JsonObject labels = doc["labels"].to<JsonObject>();
+  labels["display"] = tr(STR_STATUS_BAR);
+  labels["top"] = tr(STR_TOP_STATUS_BAR);
+  labels["bottom"] = tr(STR_BOTTOM_STATUS_BAR);
+  labels["left"] = tr(STR_STATUS_BAR_LEFT);
+  labels["center"] = tr(STR_CENTER);
+  labels["right"] = tr(STR_STATUS_BAR_RIGHT);
+  labels["percentageFormat"] = tr(STR_PERCENTAGE_FORMAT);
+  labels["progressBar"] = tr(STR_PROGRESS_BAR);
+  labels["thickness"] = tr(STR_PROGRESS_BAR_THICKNESS);
+  labels["xtcMode"] = tr(STR_XTC_STATUS_BAR);
+  labels["preview"] = tr(STR_PREVIEW);
+
+  JsonArray options = doc["options"].to<JsonArray>();
+  const auto addOption = [&options](ReaderStatusBarItem item, const std::string& label) {
+    JsonObject option = options.add<JsonObject>();
+    option["value"] = static_cast<uint8_t>(item);
+    option["label"] = label;
+  };
+  addOption(ReaderStatusBarItem::Clock, tr(STR_STATUS_BAR_CLOCK));
+  addOption(ReaderStatusBarItem::Date, tr(STR_DATE));
+  char dateText[32];
+  doc["datePreview"] = formatHeaderDateText(dateText, sizeof(dateText)) ? dateText : "";
+  addOption(ReaderStatusBarItem::Battery, tr(STR_BATTERY));
+  const auto combined = [](const char* first, const char* second) { return std::string(first) + " (" + second + ")"; };
+  addOption(ReaderStatusBarItem::TimeLeftBook, combined(tr(STR_TIME_LEFT), tr(STR_BOOK)).c_str());
+  addOption(ReaderStatusBarItem::TimeLeftChapter, combined(tr(STR_TIME_LEFT), tr(STR_CHAPTER)).c_str());
+  addOption(ReaderStatusBarItem::ChapterPageCount, tr(STR_CHAPTER_PAGE_COUNT));
+  addOption(ReaderStatusBarItem::StablePageNumber, tr(STR_STABLE_PAGE_NUMBERS));
+  addOption(ReaderStatusBarItem::BookProgressPercentage, tr(STR_BOOK_PROGRESS_PERCENTAGE));
+  addOption(ReaderStatusBarItem::TitleBook, combined(tr(STR_TITLE), tr(STR_BOOK)).c_str());
+  addOption(ReaderStatusBarItem::TitleChapter, combined(tr(STR_TITLE), tr(STR_CHAPTER)).c_str());
+  addOption(ReaderStatusBarItem::Empty, tr(STR_STATUS_BAR_EMPTY));
+
+  const auto addLabels = [&doc](const char* name, std::initializer_list<StrId> ids) {
+    JsonArray labels = doc[name].to<JsonArray>();
+    for (const StrId id : ids) labels.add(I18N.get(id));
+  };
+  addLabels("percentageFormats", {StrId::STR_PERCENTAGE_FORMAT_WHOLE, StrId::STR_PERCENTAGE_FORMAT_ONE_DECIMAL,
+                                  StrId::STR_PERCENTAGE_FORMAT_TWO_DECIMALS});
+  addLabels("progressModes", {StrId::STR_BOOK, StrId::STR_CHAPTER, StrId::STR_HIDE});
+  addLabels("thicknesses",
+            {StrId::STR_PROGRESS_BAR_THIN, StrId::STR_PROGRESS_BAR_MEDIUM, StrId::STR_PROGRESS_BAR_THICK});
+  addLabels("xtcModes", {StrId::STR_HIDE, StrId::STR_BOTTOM, StrId::STR_TOP, StrId::STR_STATUS_BAR_BOTH});
+
+  String payload;
+  serializeJson(doc, payload);
+  server->send(200, "application/json", payload);
+}
+
+void CrossPointWebServer::handlePostStatusBars() {
+  if (!server->hasArg("plain")) {
+    server->send(400, "text/plain", "Missing JSON body");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, server->arg("plain"))) {
+    server->send(400, "text/plain", "Invalid JSON");
+    return;
+  }
+  ReaderStatusBarsPayload bars;
+  DisplayStatusBarConfig display;
+  if ((!doc["display"].isNull() && !readDisplayStatusBarJson(doc["display"], display, halClock.isAvailable())) ||
+      !CrossPointSettings::parseReaderStatusBars(doc.as<JsonVariantConst>(), bars)) {
+    server->send(400, "text/plain", "Invalid status bar configuration");
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(SETTINGS.getMutex());
+    const auto& previousTop = SETTINGS.topReaderStatusBar;
+    if (previousTop.slots != bars.top.slots || previousTop.percentageFormat != bars.top.percentageFormat ||
+        previousTop.progressBar != bars.top.progressBar ||
+        previousTop.progressBarThickness != bars.top.progressBarThickness ||
+        SETTINGS.xtcStatusBarMode != bars.xtcMode) {
+      SETTINGS.legacyXtcTopUsesBottom = 0;
+    }
+    SETTINGS.topReaderStatusBar = bars.top;
+    SETTINGS.bottomReaderStatusBar = bars.bottom;
+    SETTINGS.xtcStatusBarMode = bars.xtcMode;
+    if (!doc["display"].isNull()) SETTINGS.displayStatusBar = display;
+  }
+  if (!SETTINGS.saveToFile()) {
+    LOG_ERR("WEB", "Failed to save status bar configuration");
+    server->send(500, "text/plain", "Failed to save status bars");
+    return;
+  }
+  server->send(200, "text/plain", "Status bars saved");
+}
+
 void CrossPointWebServer::handleGetSettings() const {
   // The device settings UI needs an owned, mutable copy of the settings list.
   // The web API only reads it, so iterate the static base list directly rather
@@ -1420,7 +1584,12 @@ void CrossPointWebServer::handleGetSettings() const {
 
     doc.clear();
     doc["key"] = s.key;
-    doc["name"] = I18N.get(s.nameId);
+    if (isSideButtonActionSetting(s)) {
+      const bool up = settingKeyIs(s, "sideButtonUpShort") || settingKeyIs(s, "sideButtonUpLong");
+      doc["name"] = sideButtonGroupLabel(up) + " " + I18N.get(s.nameId);
+    } else {
+      doc["name"] = I18N.get(s.nameId);
+    }
     doc["category"] = I18N.get(s.category);
 
     switch (s.type) {
@@ -1433,6 +1602,12 @@ void CrossPointWebServer::handleGetSettings() const {
       }
       case SettingType::ENUM: {
         doc["type"] = "enum";
+        if (s.valuePtr == &CrossPointSettings::shortPwrBtn || s.valuePtr == &CrossPointSettings::longPwrBtn) {
+          doc["footnotesIndex"] = enumDisplayIndexForWeb(s, CrossPointSettings::FOOTNOTES);
+        } else if (s.valuePtr == &CrossPointSettings::longPressMenuAction ||
+                   s.valuePtr == &CrossPointSettings::longPressBackAction) {
+          doc["footnotesIndex"] = enumDisplayIndexForWeb(s, CrossPointSettings::LONG_MENU_FOOTNOTES);
+        }
         if (s.nameId == StrId::STR_FONT_FAMILY && !fontFamilies.empty()) {
           uint8_t selected = SETTINGS.fontFamily < CrossPointSettings::BUILTIN_FONT_COUNT ? SETTINGS.fontFamily : 0;
           if (selectedSdFamily) {
@@ -1457,7 +1632,7 @@ void CrossPointWebServer::handleGetSettings() const {
         }
         JsonArray options = doc["options"].to<JsonArray>();
         if (s.nameId == StrId::STR_FONT_FAMILY && !fontFamilies.empty()) {
-          constexpr FontFamilyPointSizeRange builtinRange{10, 16};
+          constexpr auto builtinRange = BUILTIN_FONT_POINT_SIZE_RANGE;
           options.add(fontFamilyLabel(I18N.get(StrId::STR_LEXEND_DECA), builtinRange));
           options.add(fontFamilyLabel(I18N.get(StrId::STR_BITTER), builtinRange));
           for (const auto& family : fontFamilies) {
@@ -1477,7 +1652,7 @@ void CrossPointWebServer::handleGetSettings() const {
         } else {
           for (size_t optionIndex = 0; optionIndex < s.enumValues.size(); ++optionIndex) {
             if (isWebEnumOptionAvailable(s, optionIndex)) {
-              options.add(I18N.get(s.enumValues[optionIndex]));
+              options.add(sideButtonOptionLabel(s, static_cast<uint8_t>(optionIndex)));
             }
           }
         }
@@ -2118,6 +2293,7 @@ void CrossPointWebServer::handleFontList() const {
     json.append("],\"files\":[");
 
     bool firstFile = true;
+    family.ensureDetails();
     for (const auto& file : family.files) {
       if (!firstFile) json.append(",");
       firstFile = false;
@@ -2147,7 +2323,11 @@ void CrossPointWebServer::handleFontList() const {
     yield();
   }
 
-  json.append("],\"maxFamilies\":");
+#if CROSSINK_SCALABLE_FONTS
+  json.append("],\"ttfSupported\":true,\"maxFamilies\":");
+#else
+  json.append("],\"ttfSupported\":false,\"maxFamilies\":");
+#endif
   json.appendUnsigned(SdCardFontRegistry::MAX_SD_FAMILIES);
   json.append("}");
   json.flush();
@@ -2164,7 +2344,6 @@ void CrossPointWebServer::handleFontUploadData() {
       fontUpload.familyName.clear();
       fontUpload.filePath.clear();
       fontUpload.valid = false;
-      fontUpload.magicChecked = false;
       fontUpload.bytesWritten = 0;
       fontUpload.bufferPos = 0;
 
@@ -2209,17 +2388,23 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_WRITE: {
+      if (dropUploadIfCancelled()) {
+        abortFontUpload();
+        break;
+      }
       if (!fontUpload.valid) break;
 
-      // Validate magic bytes on first chunk only
-      if (!fontUpload.magicChecked && upload.currentSize >= 8) {
-        if (memcmp(upload.buf, "CPFONT\0\0", 8) != 0) {
-          LOG_ERR("WEB", "Invalid .cpfont magic bytes");
-          fontUpload.valid = false;
-          break;
-        }
-        fontUpload.magicChecked = true;
+      // Validate the complete file after closing it; multipart chunks may
+      // split the signature at any byte boundary.
+#if CROSSINK_SCALABLE_FONTS
+      const auto& path = fontUpload.filePath;
+      if (path.size() > 4 && strcasecmp(path.c_str() + path.size() - 4, ".ttf") == 0 &&
+          fontUpload.bytesWritten + fontUpload.bufferPos + upload.currentSize > 2 * 1024 * 1024) {
+        fontUpload.valid = false;
+        LOG_ERR("WEB", "TTF exceeds 2 MiB limit");
+        break;
       }
+#endif
 
       // Buffer writes for efficiency
       size_t remaining = upload.currentSize;
@@ -2242,6 +2427,10 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_END: {
+      if (dropUploadIfCancelled()) {
+        abortFontUpload();
+        break;
+      }
       // Flush remaining buffer
       if (fontUpload.valid && fontUpload.bufferPos > 0) {
         fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos);
@@ -2252,6 +2441,7 @@ void CrossPointWebServer::handleFontUploadData() {
         fontUpload.file.close();
       }
 
+      if (fontUpload.valid) fontUpload.valid = FontInstaller::validateCpfontFile(fontUpload.filePath.c_str());
       if (!fontUpload.valid && !fontUpload.filePath.empty()) {
         Storage.remove(fontUpload.filePath.c_str());
       }
@@ -2261,14 +2451,7 @@ void CrossPointWebServer::handleFontUploadData() {
     }
 
     case UPLOAD_FILE_ABORTED: {
-      if (fontUpload.file) {
-        fontUpload.file.close();
-      }
-      if (!fontUpload.filePath.empty()) {
-        Storage.remove(fontUpload.filePath.c_str());
-      }
-      fontUpload.valid = false;
-      LOG_DBG("WEB", "Font upload aborted");
+      abortFontUpload();
       break;
     }
   }
@@ -2280,7 +2463,7 @@ void CrossPointWebServer::handleFontUpload() {
     server->send(200, "application/json", "{\"ok\":true}");
     LOG_DBG("WEB", "Font upload complete: %s", fontUpload.filePath.c_str());
   } else {
-    server->send(400, "application/json", "{\"error\":\"Invalid .cpfont file\"}");
+    server->send(400, "application/json", "{\"error\":\"Unsupported or damaged font file\"}");
   }
 }
 
@@ -2295,6 +2478,7 @@ void CrossPointWebServer::handleFontDelete() {
   }
 
   const char* familyName = doc["family"];
+  sdFontSystem.refreshIfDirty();
   FontInstaller installer(sdFontSystem.registry());
   auto result = installer.deleteFamily(familyName);
 

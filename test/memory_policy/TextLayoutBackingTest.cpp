@@ -88,3 +88,28 @@ TEST_F(TextLayoutBackingTest, AllocationFailureReturnsWithoutPartialLinesOrLeaks
   EXPECT_TRUE(fakeheap::live.empty());
 }
 #endif
+
+TEST_F(TextLayoutBackingTest, SizedLineSurvivesCacheRoundTrip) {
+  BlockStyle style;
+  style.fontSize = 32;
+  style.lineHeight = 68;
+  ParsedText text(false, false, false, false, false, 0, style);
+  text.addWord("Heading", EpdFontFamily::BOLD, false, false, false, 0, 0);
+  GfxRenderer renderer;
+  FsFile output;
+  ASSERT_TRUE(Storage.openFileForWrite("test", "sized-line", output));
+  ASSERT_TRUE(text.layoutAndExtractLines(renderer, 0, 480, [&](std::shared_ptr<TextBlock> block, uint32_t, uint32_t) {
+    ASSERT_TRUE(block->serialize(output));
+  }));
+  output.close();
+  FsFile input;
+  ASSERT_TRUE(Storage.openFileForRead("test", "sized-line", input));
+  auto restored = TextBlock::deserialize(input);
+  input.close();
+  ASSERT_NE(restored, nullptr);
+  EXPECT_EQ(restored->getBlockStyle().fontSize, 32);
+  EXPECT_EQ(restored->getBlockStyle().lineHeight, 68);
+  ASSERT_EQ(restored->wordCount(), 1);
+  EXPECT_STREQ(restored->wordText(0), "Heading");
+  EXPECT_EQ(restored->wordStyle(0), EpdFontFamily::BOLD);
+}

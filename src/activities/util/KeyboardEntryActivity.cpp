@@ -20,6 +20,18 @@ namespace fui = freeink::ui;
 namespace {
 
 constexpr fui::ActionId ACTION_KEY = 1;
+constexpr int KEYBOARD_MIN_GAP = 6;
+constexpr int KEYBOARD_PANEL_PADDING = 4;
+constexpr int BUTTON_KEY_HEIGHT = 42;
+constexpr int BUTTON_KEYBOARD_HINT_GAP = 4;
+constexpr int SIDE_HINT_CLEARANCE = 6;
+
+int keyboardGap(const ThemeMetrics& metrics) { return std::max(metrics.keyboardKeySpacing, KEYBOARD_MIN_GAP); }
+
+int keyboardKeysHeight(const ThemeMetrics& metrics, const int rows, const bool hasTouch) {
+  const int keyHeight = hasTouch ? metrics.keyboardKeyHeight : BUTTON_KEY_HEIGHT;
+  return rows * keyHeight + (rows > 1 ? (rows - 1) * keyboardGap(metrics) : 0) + KEYBOARD_PANEL_PADDING * 2;
+}
 
 // ---------------------------------------------------------------------------
 // URL layers. The SDK builtin layouts have no URL variant (":", "/", ".", the
@@ -28,14 +40,19 @@ constexpr fui::ActionId ACTION_KEY = 1;
 // regardless of UI language.
 // ---------------------------------------------------------------------------
 
+constexpr uint8_t URL_KEY_WIDTH = 2;
+constexpr uint8_t URL_WIDE_CONTROL_WIDTH = 3;
+
 #define UK(label, output, value) \
-  fui::KeyboardKey { label, output, fui::KeyKind::Normal, fui::StateNormal, value, 1, true, nullptr }
+  fui::KeyboardKey { label, output, fui::KeyKind::Normal, fui::StateNormal, value, URL_KEY_WIDTH, true, nullptr }
 #define UKA(label, output, value, alt) \
-  fui::KeyboardKey { label, output, fui::KeyKind::Normal, fui::StateNormal, value, 1, true, alt }
+  fui::KeyboardKey { label, output, fui::KeyKind::Normal, fui::StateNormal, value, URL_KEY_WIDTH, true, alt }
 #define UKW(label, output, value, units) \
-  fui::KeyboardKey { label, output, fui::KeyKind::Normal, fui::StateNormal, value, units, true, nullptr }
+  fui::KeyboardKey { label, output, fui::KeyKind::Normal, fui::StateNormal, value, units *URL_KEY_WIDTH, true, nullptr }
 #define UKS(label, kind, value, units) \
-  fui::KeyboardKey { label, nullptr, kind, fui::StateNormal, value, units, true, nullptr }
+  fui::KeyboardKey { label, nullptr, kind, fui::StateNormal, value, units *URL_KEY_WIDTH, true, nullptr }
+#define UK15(label, kind, value) \
+  fui::KeyboardKey { label, nullptr, kind, fui::StateNormal, value, URL_WIDE_CONTROL_WIDTH, true, nullptr }
 
 constexpr int16_t URL_PANEL_VALUE = -3;  // mirrors KeyboardEntryActivity::URL_PANEL_KEY
 
@@ -50,7 +67,7 @@ const fui::KeyboardKey URL_ROW1[] = {UK("q", "q", 'q'), UK("w", "w", 'w'), UK("e
 const fui::KeyboardKey URL_ROW2[] = {UK("a", "a", 'a'), UK("s", "s", 's'), UK("d", "d", 'd'),
                                      UK("f", "f", 'f'), UK("g", "g", 'g'), UK("h", "h", 'h'),
                                      UK("j", "j", 'j'), UK("k", "k", 'k'), UK("l", "l", 'l')};
-const fui::KeyboardKey URL_ROW3[] = {UKS("Shift", fui::KeyKind::Shift, fui::QWERTY_KEY_SHIFT, 2),
+const fui::KeyboardKey URL_ROW3[] = {UK15(nullptr, fui::KeyKind::Shift, fui::QWERTY_KEY_SHIFT),
                                      UK("z", "z", 'z'),
                                      UK("x", "x", 'x'),
                                      UK("c", "c", 'c'),
@@ -58,7 +75,7 @@ const fui::KeyboardKey URL_ROW3[] = {UKS("Shift", fui::KeyKind::Shift, fui::QWER
                                      UK("b", "b", 'b'),
                                      UK("n", "n", 'n'),
                                      UK("m", "m", 'm'),
-                                     UKS("Del", fui::KeyKind::Delete, fui::QWERTY_KEY_BACKSPACE, 2)};
+                                     UK15("Del", fui::KeyKind::Delete, fui::QWERTY_KEY_BACKSPACE)};
 // URLs have no spaces, so the URL bottom row spends the space slot on ":",
 // "/", "." and the snippet-panel toggle instead (the legacy keyboard did the
 // same with its "URL" key).
@@ -66,7 +83,7 @@ const fui::KeyboardKey URL_BOTTOM[] = {UKS("?123", fui::KeyKind::Mode, fui::QWER
                                        UK(":", ":", ':'),
                                        UK("/", "/", '/'),
                                        UK(".", ".", '.'),
-                                       UKW("URL", nullptr, URL_PANEL_VALUE, 2),
+                                       UKW("URL", nullptr, URL_PANEL_VALUE, 3),
                                        UKS("OK", fui::KeyKind::Ok, fui::QWERTY_KEY_ENTER, 2)};
 
 const fui::KeyboardKey URL_SHIFT_ROW1[] = {UK("Q", "Q", 'Q'), UK("W", "W", 'W'), UK("E", "E", 'E'), UK("R", "R", 'R'),
@@ -75,7 +92,7 @@ const fui::KeyboardKey URL_SHIFT_ROW1[] = {UK("Q", "Q", 'Q'), UK("W", "W", 'W'),
 const fui::KeyboardKey URL_SHIFT_ROW2[] = {UK("A", "A", 'A'), UK("S", "S", 'S'), UK("D", "D", 'D'),
                                            UK("F", "F", 'F'), UK("G", "G", 'G'), UK("H", "H", 'H'),
                                            UK("J", "J", 'J'), UK("K", "K", 'K'), UK("L", "L", 'L')};
-const fui::KeyboardKey URL_SHIFT_ROW3[] = {UKS("Shift", fui::KeyKind::Shift, fui::QWERTY_KEY_SHIFT, 2),
+const fui::KeyboardKey URL_SHIFT_ROW3[] = {UK15(nullptr, fui::KeyKind::Shift, fui::QWERTY_KEY_SHIFT),
                                            UK("Z", "Z", 'Z'),
                                            UK("X", "X", 'X'),
                                            UK("C", "C", 'C'),
@@ -83,7 +100,7 @@ const fui::KeyboardKey URL_SHIFT_ROW3[] = {UKS("Shift", fui::KeyKind::Shift, fui
                                            UK("B", "B", 'B'),
                                            UK("N", "N", 'N'),
                                            UK("M", "M", 'M'),
-                                           UKS("Del", fui::KeyKind::Delete, fui::QWERTY_KEY_BACKSPACE, 2)};
+                                           UK15("Del", fui::KeyKind::Delete, fui::QWERTY_KEY_BACKSPACE)};
 
 // Snippet keys: multi-character outputs, stable ids above the localized-key
 // range so they never collide with layout key ids.
@@ -94,14 +111,15 @@ const fui::KeyboardKey URL_SNIP_ROW2[] = {UK("http://", "http://", 2004), UK("19
 const fui::KeyboardKey URL_SNIP_ROW3[] = {UK("/opds", "/opds", 2007), UK(":8080", ":8080", 2008),
                                           UK(".net", ".net", 2009)};
 const fui::KeyboardKey URL_SNIP_BOTTOM[] = {UKS("abc", fui::KeyKind::Mode, fui::QWERTY_KEY_MODE, 2),
-                                            UKW("URL", nullptr, URL_PANEL_VALUE, 2),
-                                            UKS("Del", fui::KeyKind::Delete, fui::QWERTY_KEY_BACKSPACE, 2),
+                                            UKW("URL", nullptr, URL_PANEL_VALUE, 3),
+                                            UK15("Del", fui::KeyKind::Delete, fui::QWERTY_KEY_BACKSPACE),
                                             UKS("OK", fui::KeyKind::Ok, fui::QWERTY_KEY_ENTER, 2)};
 
 #undef UK
 #undef UKA
 #undef UKW
 #undef UKS
+#undef UK15
 
 const fui::KeyboardRow URL_ROWS[] = {
     {URL_NUM_ROW, 10, 0}, {URL_ROW1, 10, 0}, {URL_ROW2, 9, 1}, {URL_ROW3, 9, 0}, {URL_BOTTOM, 6, 0}};
@@ -118,6 +136,11 @@ const fui::KeyboardLayout URL_SNIPPET_LAYOUT{URL_SNIP_ROWS, 4};
 
 void KeyboardEntryActivity::onEnter() {
   Activity::onEnter();
+  inputLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+#if CROSSINK_APP_CAP_TOUCH
+  pendingFeedback = 0;
+  feedbackSequence = 0;
+#endif
   cursorPos = text.length();
   layoutId = inputType == InputType::Url ? fui::KeyboardLayoutId::QwertyEn : keyboard_layouts::startingLayout();
   const uint16_t enabledLayouts = keyboard_layouts::enabled();
@@ -130,6 +153,7 @@ void KeyboardEntryActivity::onEnter() {
   passwordVisible = false;
   selRow = 0;
   selCol = 0;
+  buttonSelectionVisible = !mappedInput.hasTouchHardware();
   delPressCount = 0;
   hintVisible = false;
   hintShowTime = 0;
@@ -145,6 +169,16 @@ void KeyboardEntryActivity::onEnter() {
 }
 
 void KeyboardEntryActivity::onExit() { Activity::onExit(); }
+
+#if CROSSINK_APP_CAP_TOUCH
+void KeyboardEntryActivity::showTouchFeedback(const int16_t value) {
+  // Keep zero reserved for no feedback, including after sequence wraparound.
+  feedbackSequence = feedbackSequence == UINT16_MAX ? 1 : feedbackSequence + 1;
+  pendingFeedback.store((static_cast<uint32_t>(feedbackSequence) << 16) | static_cast<uint16_t>(value));
+  requestUpdate();
+}
+
+#endif
 
 const fui::KeyboardLayout& KeyboardEntryActivity::currentLayout() const {
   if (symbols) return fui::builtinKeyboardLayout(layoutId, shifted, true);
@@ -189,6 +223,7 @@ void KeyboardEntryActivity::clampSelection() {
 void KeyboardEntryActivity::moveSelectionRow(const int delta) {
   const fui::KeyboardLayout& layout = currentLayout();
   if (layout.rowCount == 0) return;
+  buttonSelectionVisible = true;
   const int oldCols = selRow < layout.rowCount ? layout.rows[selRow].count : 1;
   selRow = (selRow + delta + layout.rowCount) % layout.rowCount;
   const int newCols = layout.rows[selRow].count;
@@ -205,6 +240,7 @@ void KeyboardEntryActivity::moveSelectionCol(const int delta) {
   if (selRow < 0 || selRow >= layout.rowCount) return;
   const int cols = layout.rows[selRow].count;
   if (cols <= 0) return;
+  buttonSelectionVisible = true;
   selCol = (selCol + delta + cols) % cols;
 }
 
@@ -419,7 +455,7 @@ KeyboardEntryActivity::InputFieldTouchTarget KeyboardEntryActivity::inputFieldTo
   const int pageWidth = renderer.getScreenWidth();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int lineHeight = inputLineHeight;
   const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
                           metrics.verticalSpacing + metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
 
@@ -516,14 +552,18 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
   const int rows = currentLayout().rowCount;
-  const int gap = metrics.keyboardKeySpacing;
-  const int height = rows * metrics.keyboardKeyHeight + (rows > 1 ? (rows - 1) * gap : 0);
-  const int width = pageWidth * metrics.keyboardWidthPercent / 100;
-  const int x = (pageWidth - width) / 2;
-  const int y =
-      pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - height + metrics.keyboardVerticalOffset;
-  return fui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(width),
-                   static_cast<int16_t>(height)};
+  const bool hasTouch = mappedInput.hasTouchHardware();
+  const int height = keyboardKeysHeight(metrics, rows, hasTouch);
+  const int hintGap = hasTouch ? metrics.verticalSpacing - metrics.keyboardVerticalOffset : BUTTON_KEYBOARD_HINT_GAP;
+  int y = pageHeight - metrics.buttonHintsHeight - height - hintGap;
+  if (hasTouch) {
+    const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
+                            metrics.verticalSpacing * 5 + metrics.keyboardVerticalOffset;
+    const int inputBottom = inputStartY + inputLineHeight + metrics.verticalSpacing + 8;
+    y = std::max(y, inputBottom);
+  }
+  return fui::Rect{0, static_cast<int16_t>(y), static_cast<int16_t>(pageWidth),
+                   static_cast<int16_t>(hasTouch ? pageHeight - y : height)};
 }
 
 void KeyboardEntryActivity::loop() {
@@ -540,6 +580,7 @@ void KeyboardEntryActivity::loop() {
     size_t touchedCursorPos = 0;
     const InputFieldTouchTarget inputTarget = inputFieldTouchTargetFromPoint(tx, ty, touchedCursorPos);
     if (inputTarget == InputFieldTouchTarget::PasswordToggle) {
+      buttonSelectionVisible = false;
       passwordVisible = !passwordVisible;
       togglePos = false;
       hintVisible = false;
@@ -547,6 +588,7 @@ void KeyboardEntryActivity::loop() {
       return;
     }
     if (inputTarget == InputFieldTouchTarget::Cursor) {
+      buttonSelectionVisible = false;
       cursorPos = std::min(touchedCursorPos, text.length());
       cursorMode = false;
       togglePos = false;
@@ -575,16 +617,20 @@ void KeyboardEntryActivity::loop() {
     const fui::TouchHoldRouter::Result result =
         touchRouter.update(interactions, tapCandidate, static_cast<int16_t>(tx), static_cast<int16_t>(ty), tapped,
                            static_cast<int16_t>(tapX), static_cast<int16_t>(tapY), inContact, millis());
+    if (result.activeChanged && interactions.activeIndex() >= 0) {
+      buttonSelectionVisible = false;
+      showTouchFeedback(interactions.publishedData()[interactions.activeIndex()].value);
+    }
     if (result.event) {
+      buttonSelectionVisible = false;
+      showTouchFeedback(result.event.value);
       syncSelectionToValue(result.event.value);
       if (activateValue(result.event.value, result.event.longPress)) {
         requestUpdate();
       }
       return;
     }
-    if (result.activeChanged) {
-      requestUpdate();
-    }
+    // Feedback requests coalesce while the panel is busy; input keeps polling.
     if (tapCandidate || tapped) {
       return;
     }
@@ -620,6 +666,7 @@ void KeyboardEntryActivity::loop() {
       togglePos = false;
       passwordVisible = false;
       cursorMode = false;
+      buttonSelectionVisible = true;
       hintVisible = false;
       downLongHandled = true;
       requestUpdate();
@@ -695,8 +742,15 @@ void KeyboardEntryActivity::loop() {
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    confirmHeld = true;
-    confirmLongHandled = false;
+    if (mappedInput.hasTouchHardware() && !buttonSelectionVisible.load()) {
+      // Touch typing hides the button focus. Reveal it first so Confirm cannot
+      // activate a key whose selection is not visible.
+      buttonSelectionVisible = true;
+      requestUpdate();
+    } else {
+      confirmHeld = true;
+      confirmLongHandled = false;
+    }
   }
 
   const fui::KeyboardKey* selKey = selectedKey();
@@ -742,6 +796,9 @@ void KeyboardEntryActivity::loop() {
 }
 
 void KeyboardEntryActivity::render(RenderLock&&) {
+#if CROSSINK_APP_CAP_TOUCH
+  const uint32_t feedback = pendingFeedback.load();
+#endif
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
@@ -754,7 +811,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     GUI.drawHeader(renderer, header, title.c_str());
   }
 
-  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int lineHeight = inputLineHeight;
   const int inputStartY = metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) +
                           metrics.verticalSpacing + metrics.verticalSpacing * 4 + metrics.keyboardVerticalOffset;
   int inputHeight = 0;
@@ -927,6 +984,16 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   }
 
   const fui::Rect kbRect = keyboardRect();
+  const int keysHeight = std::min(keyboardKeysHeight(metrics, currentLayout().rowCount, mappedInput.hasTouchHardware()),
+                                  static_cast<int>(kbRect.height));
+  const auto orientation = renderer.getOrientation();
+  const bool sideHintsOverlapKeys =
+      deviceUsesSideButtonHintGutters(gpio) && (orientation == GfxRenderer::Orientation::LandscapeClockwise ||
+                                                orientation == GfxRenderer::Orientation::LandscapeCounterClockwise);
+  const int sideInset = sideHintsOverlapKeys ? metrics.sideButtonHintsWidth + SIDE_HINT_CLEARANCE : 0;
+  const fui::Rect keysRect{static_cast<int16_t>(kbRect.x + sideInset),
+                           static_cast<int16_t>(kbRect.y + (kbRect.height - keysHeight) / 2),
+                           static_cast<int16_t>(kbRect.width - 2 * sideInset), static_cast<int16_t>(keysHeight)};
 
   const int tipsLh = renderer.getLineHeight(SMALL_FONT_ID);
   const int underlineBottom = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing + 4;
@@ -988,30 +1055,99 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
   const fui::DeviceContext device = target.deviceContext();
   const fui::InputSnapshot noInput{};
-  interactions.beginPublishCycle();
-  fui::Frame<56> frame(target, device, noInput, interactions);
+#if CROSSINK_APP_CAP_TOUCH
+  auto& frameInteractions = paintInteractions;
+  frameInteractions.clearFlash();
+  if (feedback && !cursorMode && !buttonSelectionVisible.load()) {
+    frameInteractions.setFlash(ACTION_KEY, static_cast<int16_t>(feedback & 0xFFFF));
+  }
+#else
+  auto& frameInteractions = interactions;
+  frameInteractions.beginPublishCycle();
+#endif
+  fui::Frame<56> frame(target, device, noInput, frameInteractions);
 
   fui::KeyboardProps props;
   const fui::KeyboardLayout& layout = currentLayout();
   props.layout = &layout;
+  // Match the bottom row's outer edges to the ten-key letter row. Control-only
+  // rows otherwise fill the whole panel, even when their key weights shrink.
+  fui::KeyboardRow compactRows[5];
+  fui::KeyboardKey compactBottomKeys[4];
+  fui::KeyboardLayout compactLayout;
+  if (layoutId == fui::KeyboardLayoutId::QwertyEn && inputType != InputType::Url && !symbols && layout.rowCount == 5) {
+    const auto& bottomRow = layout.rows[4];
+    const uint8_t spaceIndex = bottomRow.count >= 2 ? static_cast<uint8_t>(bottomRow.count - 2) : 0;
+    if ((bottomRow.count == 3 || bottomRow.count == 4) && bottomRow.keys &&
+        bottomRow.keys[0].kind == fui::KeyKind::Mode && bottomRow.keys[spaceIndex].kind == fui::KeyKind::Space &&
+        bottomRow.keys[bottomRow.count - 1].kind == fui::KeyKind::Ok) {
+      constexpr int BOTTOM_UNIT_PX = 3;
+      constexpr int LETTER_ROW_UNITS = 20;  // Ten English keys, two units each.
+      constexpr int LETTER_ROW_GAPS = 9;
+      const int gap = keyboardGap(metrics);
+      const int contentWidth = keysRect.width - props.padding.left - props.padding.right;
+      const int letterUnit = (contentWidth - LETTER_ROW_GAPS * gap) / LETTER_ROW_UNITS;
+      const int letterInset = (contentWidth - (LETTER_ROW_UNITS * letterUnit + LETTER_ROW_GAPS * gap)) / 2;
+      const int insetUnits = (letterInset + BOTTOM_UNIT_PX / 2) / BOTTOM_UNIT_PX;
+      const int bottomUnits = (contentWidth - (bottomRow.count - 1) * gap) / BOTTOM_UNIT_PX - 2 * insetUnits;
+      const int modeUnits = std::max(
+          (3 * bottomUnits + LETTER_ROW_UNITS / 2) / LETTER_ROW_UNITS,
+          (renderer.getTextWidth(UI_12_FONT_ID, tr(STR_KEY_MODE_SYMBOLS)) + 8 + BOTTOM_UNIT_PX - 1) / BOTTOM_UNIT_PX);
+      const int okUnits =
+          std::max((3 * bottomUnits + LETTER_ROW_UNITS / 2) / LETTER_ROW_UNITS,
+                   (renderer.getTextWidth(UI_12_FONT_ID, tr(STR_OK_BUTTON)) + 8 + BOTTOM_UNIT_PX - 1) / BOTTOM_UNIT_PX);
+      const int langUnits = bottomRow.count == 4 ? (2 * bottomUnits + LETTER_ROW_UNITS / 2) / LETTER_ROW_UNITS : 0;
+      const int spaceUnits = bottomUnits - modeUnits - okUnits - langUnits;
+      if (spaceUnits > 0 && spaceUnits <= UINT8_MAX && modeUnits <= UINT8_MAX && okUnits <= UINT8_MAX &&
+          langUnits <= UINT8_MAX) {
+        std::copy_n(layout.rows, layout.rowCount, compactRows);
+        std::copy_n(bottomRow.keys, bottomRow.count, compactBottomKeys);
+        compactRows[4].insetUnits = static_cast<uint8_t>(insetUnits);
+        compactBottomKeys[0].widthUnits = static_cast<uint8_t>(modeUnits);
+        if (bottomRow.count == 4) compactBottomKeys[1].widthUnits = static_cast<uint8_t>(langUnits);
+        compactBottomKeys[spaceIndex].widthUnits = static_cast<uint8_t>(spaceUnits);
+        compactBottomKeys[bottomRow.count - 1].widthUnits = static_cast<uint8_t>(okUnits);
+        compactRows[4].keys = compactBottomKeys;
+        compactLayout = {compactRows, layout.rowCount};
+        props.layout = &compactLayout;
+      }
+    }
+  }
   props.keyAction = ACTION_KEY;  // one action id; loop() dispatches on key value
   props.okLabel = tr(STR_OK_BUTTON);
-  props.shiftLabel = tr(STR_KEY_SHIFT);
   // Match the label to the layer the mode key leads back from: the symbols
   // layer and the URL snippet panel both label it "abc" in the static tables.
   props.modeLabel =
       (symbols || (inputType == InputType::Url && urlPanel)) ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
-  props.selectedIndex = cursorMode ? -1 : static_cast<int16_t>(selectedLogicalIndex());
-  props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
+  props.selectedIndex =
+      (cursorMode || !buttonSelectionVisible.load()) ? -1 : static_cast<int16_t>(selectedLogicalIndex());
+  props.labelText.font = layoutId == fui::KeyboardLayoutId::ArabicAr && !symbols ? fui::GfxRendererTarget::FONT_SMALL
+                                                                                 : fui::GfxRendererTarget::FONT_BODY;
   props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
-  props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
-  props.padding = fui::Insets{0, 0, 0, 0};
+  props.gap = props.rowGap = static_cast<int16_t>(keyboardGap(metrics));
+  if (urlPanel) props.uniformKeyWidth = false;
+  if (!mappedInput.hasTouchHardware()) {
+    props.background = fui::Paint::none();
+    props.altHintRightPadding = 5;
+  }
+  frame.target().fill(kbRect, props.background);
+  // The SDK fills the keys rect with this paint too. The outer fill already
+  // covers it and the surrounding panel, so avoid drawing that area twice.
+  props.background = fui::Paint::none();
   // Fingers land low on the bottom row (occlusion) and there is no key below
   // to catch the miss — extend its hit band down to the button hints bar.
-  const int hintsTop = renderer.getScreenHeight() - metrics.buttonHintsHeight;
-  props.bottomHitOverflow = static_cast<int16_t>(std::max(0, hintsTop - (kbRect.y + kbRect.height)));
-  fui::keyboard(frame, kbRect, props);
+  const int bottomEdge = mappedInput.hasTouchHardware() ? renderer.getScreenHeight()
+                                                        : renderer.getScreenHeight() - metrics.buttonHintsHeight;
+  props.bottomHitOverflow = static_cast<int16_t>(std::max(0, bottomEdge - keysRect.bottom()));
+  fui::keyboard(frame, keysRect, props);
+#if CROSSINK_APP_CAP_TOUCH
+  interactions.beginPublishCycle();
+  interactions.clear();
+  for (size_t i = 0; i < frameInteractions.count(); ++i) {
+    interactions.addInteraction(frameInteractions.data()[i]);
+  }
+#endif
   interactions.publish();
   interactionsReady.store(true, std::memory_order_release);
 
@@ -1022,6 +1158,14 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   GUI.drawSideButtonHints(renderer, ">", "<");
 
   renderer.displayBuffer();
+#if CROSSINK_APP_CAP_TOUCH
+  // Only acknowledge the frame actually displayed. A newer press (including
+  // the same key again) must survive an older refresh completing.
+  uint32_t expected = feedback;
+  if (feedback && pendingFeedback.compare_exchange_strong(expected, 0)) {
+    requestUpdate();  // Remove the flash even if typing has stopped.
+  }
+#endif
 }
 
 void KeyboardEntryActivity::onComplete(std::string text) {

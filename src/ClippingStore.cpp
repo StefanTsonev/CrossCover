@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
+#include <Utf8.h>
 #include <uzlib.h>
 
 #include <algorithm>
@@ -39,6 +40,7 @@ void copyBounded(char* dst, const size_t dstSize, const char* src) {
   if (dstSize == 0) return;
   if (!src) src = "";
   snprintf(dst, dstSize, "%s", src);
+  dst[utf8SafeTruncateBuffer(dst, static_cast<int>(strlen(dst)))] = '\0';
 }
 
 bool readClippingFileHeader(const std::string& fullPath, const char* name, ClippingFileHeader& header) {
@@ -116,7 +118,7 @@ bool ClippingStore::loadForBook(const std::string& filePath, const std::string& 
 
 void ClippingStore::unload() {
   if (dirty) saveToFile();
-  clippings.clear();
+  std::vector<Clipping>().swap(clippings);
   bookFilePath.clear();
   bookTitle.clear();
   bookAuthor.clear();
@@ -148,7 +150,8 @@ ClippingStore::AddResult ClippingStore::addClipping(const uint16_t spineIndex, c
   clipping.layoutSignature = layoutSignature;
   clipping.tableSelection = tableSelection;
   copyBounded(clipping.chapterTitle, sizeof(clipping.chapterTitle), chapterTitle);
-  clipping.textLength = static_cast<uint16_t>(std::min(text.size(), CLIPPING_TEXT_MAX));
+  const size_t cappedLength = std::min(text.size(), CLIPPING_TEXT_MAX);
+  clipping.textLength = static_cast<uint16_t>(utf8SafeTruncateBuffer(text.data(), static_cast<int>(cappedLength)));
 
   clippings.push_back(std::move(clipping));
   dirty = true;
@@ -252,7 +255,7 @@ bool ClippingStore::saveToFile() {
 }
 
 void ClippingStore::clearAll() {
-  clippings.clear();
+  std::vector<Clipping>().swap(clippings);
   dirty = false;
   if (!storeFilePath.empty() && Storage.exists(storeFilePath.c_str())) {
     Storage.remove(storeFilePath.c_str());
@@ -318,6 +321,9 @@ bool ClippingStore::readFromFile(const std::string& path, std::vector<Clipping>&
       return false;
     }
     clipping.chapterTitle[sizeof(clipping.chapterTitle) - 1] = '\0';
+    const int safeTitleLength =
+        utf8SafeTruncateBuffer(clipping.chapterTitle, static_cast<int>(strlen(clipping.chapterTitle)));
+    clipping.chapterTitle[safeTitleLength] = '\0';
     if (version == LEGACY_VERSION) {
       uint32_t textLen = 0;
       if (!serialization::tryReadPod(f, textLen)) {
@@ -423,9 +429,7 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
     }
 
     const bool useReplacement = replacementText && i == replacementIndex;
-    const uint16_t textLen = useReplacement
-                                 ? static_cast<uint16_t>(std::min(replacementText->size(), CLIPPING_TEXT_MAX))
-                                 : clipping.textLength;
+    const uint16_t textLen = clipping.textLength;
     if (!serialization::tryWritePod(f, textLen)) {
       LOG_ERR("CLIP", "Failed to write clipping text length %u: %s", i, tmpPath.c_str());
       f.close();
@@ -486,7 +490,7 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
 
 bool ClippingStore::hasAnyClippings() {
   if (!Storage.exists(CLIPPINGS_DIR)) return false;
-  return !Storage.listFiles(CLIPPINGS_DIR).empty();
+  return !Storage.listFiles(CLIPPINGS_DIR, 1).empty();
 }
 
 bool ClippingStore::getAllClippedBooks(std::vector<ClippedBookEntry>& out) {
@@ -571,6 +575,13 @@ bool ClippingStore::migrateForFilePath(const std::string& oldFilePath, const std
     Storage.remove(backupPath.c_str());
   }
   return true;
+}
+
+bool ClippingStore::hasStoredStateForFilePath(const std::string& filePath, const std::string& bookType) {
+  const std::string path = storeFilePathForBook(filePath, bookType);
+  constexpr std::array<const char*, 4> suffixes = {"", ".bak", ".tmp", ".rename.bak"};
+  return std::any_of(suffixes.begin(), suffixes.end(),
+                     [&path](const char* suffix) { return Storage.exists((path + suffix).c_str()); });
 }
 
 bool ClippingStore::beginRenameMigration(const std::string& oldFilePath, const std::string& newFilePath,

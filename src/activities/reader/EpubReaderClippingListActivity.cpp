@@ -520,14 +520,15 @@ void EpubReaderClippingListActivity::buildListScreen(UiApp::ScreenType& screen) 
     item.actionValue = static_cast<int16_t>(i);
   }
 
-  // Hand FreeInkUI only the rows populated above. Passing the whole list instead lets a
-  // geometry taller than CLIPPING_WINDOW_SIZE draw entries this pass never filled, whose
-  // labels still point into uiLabels slots that a later pass reassigns.
+  // Keep previews limited to the populated window while giving FreeInkUI the
+  // full count so its scroll indicator reflects the whole clipping list.
   const int drawCount = std::max(0, end - topIndex);
   props.items = uiItems.data() + topIndex;
-  props.count = static_cast<uint16_t>(drawCount);
-  props.selectedIndex = static_cast<int16_t>(selectedIndex - topIndex);
-  props.topIndex = 0;
+  props.itemsWindowFirst = static_cast<uint16_t>(topIndex);
+  props.itemsWindowCount = static_cast<uint16_t>(drawCount);
+  props.count = static_cast<uint16_t>(count);
+  props.selectedIndex = static_cast<int16_t>(selectedIndex);
+  props.topIndex = static_cast<uint16_t>(topIndex);
   screen.list(props);
 }
 

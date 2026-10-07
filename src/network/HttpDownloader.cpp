@@ -18,8 +18,10 @@
 #include <utility>
 
 #include "AppVersion.h"
+#include "network/DownloadFileSwap.h"
 #include "network/HttpRedirectPolicy.h"
 #include "network/WifiPowerSaveGuard.h"
+#include "util/UrlUtils.h"
 
 namespace {
 constexpr size_t PROGRESS_UPDATE_BYTES = 64 * 1024;
@@ -72,6 +74,11 @@ class ProgressNotifier {
   void setTotal(const size_t total) { total_ = total; }
 
   void notify(size_t downloaded, bool force) {
+    // Known gap: with no Content-Length (chunked or close-delimited bodies)
+    // total_ stays 0 and callers never hear about progress, so the OPDS
+    // download screen sits at 0% until the transfer ends. Cancel still works
+    // through shouldCancel. If a server ever does this for books, report
+    // bytes on a timer with total 0 and draw an indeterminate bar.
     if (!progress_ || !*progress_ || total_ == 0) return;
 
     const uint32_t now = millis();
@@ -103,7 +110,7 @@ struct Sink {
 
 void setRequestHeaders(esp_http_client_handle_t client, const std::string& username, const std::string& password,
                        size_t resumeOffset, bool sendAuthorization) {
-  esp_http_client_set_header(client, "User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
+  esp_http_client_set_header(client, "User-Agent", AppVersion::userAgent());
   esp_http_client_set_header(client, "Connection", "close");
   if (resumeOffset > 0) {
     char rangeHeader[40];
@@ -149,12 +156,12 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
     if (!http.begin(currentUrl)) {
-      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL rejected URL: %s", UrlUtils::forLog(currentUrl).c_str());
       return HttpDownloader::HTTP_ERROR;
     }
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
     // exactly one header while retaining CrossInk's device/version identity.
-    http.setUserAgent("CrossInk-ESP32-" CROSSINK_VERSION);
+    http.setUserAgent(AppVersion::userAgent());
     if (sink.resumeOffset > 0) {
       char rangeHeader[40];
       snprintf(rangeHeader, sizeof(rangeHeader), "bytes=%zu-", sink.resumeOffset);
@@ -167,7 +174,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       http.addHeader("Authorization", std::string("Basic ") + encoded.c_str());
     }
 
-    LOG_DBG("HTTP", "wolfSSL GET: %s", currentUrl.c_str());
+    LOG_DBG("HTTP", "wolfSSL GET: %s", UrlUtils::forLog(currentUrl).c_str());
     const int status = http.GET(
         [&http, &sink, &progressNotifier](const uint8_t* data, const size_t len) {
           const int responseStatus = http.getStatus();
@@ -197,7 +204,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
     if (status < 0) {
-      LOG_ERR("HTTP", "wolfSSL request failed: %s", currentUrl.c_str());
+      LOG_ERR("HTTP", "wolfSSL request failed: %s", UrlUtils::forLog(currentUrl).c_str());
       logNetworkState("wolfSSL request failure");
       return HttpDownloader::HTTP_ERROR;
     }
@@ -501,17 +508,19 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   (void)wifiPowerSaveGuard;
 
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
+  if (options.stageAsPart && !DownloadFileSwap::recover(destPath)) return FILE_ERROR;
+  const std::string writePath = options.stageAsPart ? destPath + ".part" : destPath;
   size_t resumeOffset = 0;
-  if (options.resumePartial && Storage.exists(destPath.c_str())) {
+  if (options.resumePartial && Storage.exists(writePath.c_str())) {
     FsFile existingFile;
-    if (Storage.openFileForRead("HTTP", destPath.c_str(), existingFile)) {
+    if (Storage.openFileForRead("HTTP", writePath.c_str(), existingFile)) {
       resumeOffset = existingFile.fileSize();
       existingFile.close();
     }
   }
 
-  if (resumeOffset == 0 && Storage.exists(destPath.c_str())) {
-    Storage.remove(destPath.c_str());
+  if (resumeOffset == 0 && Storage.exists(writePath.c_str())) {
+    Storage.remove(writePath.c_str());
   }
 
   Sink sink;
@@ -522,12 +531,35 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   FsFile file;
   bool fileOpen = false;
+#ifndef SIMULATOR
+  bool spaceChecked = false;
+#endif
+  bool insufficientSpace = false;
   auto openOutputFile = [&]() {
     if (fileOpen) return true;
+#ifndef SIMULATOR
+    // The host storage shim does not expose card capacity.
+    if (options.checkFreeSpace && !spaceChecked) {
+      spaceChecked = true;
+      // Some SD transports cannot report capacity; let the write fail instead.
+      const uint64_t totalBytes = Storage.totalBytes();
+      if (totalBytes > 0 && sink.total > sink.resumeOffset) {
+        const uint64_t usedBytes = Storage.usedBytes();
+        const uint64_t freeBytes = totalBytes > usedBytes ? totalBytes - usedBytes : 0;
+        const uint64_t neededBytes = sink.total - sink.resumeOffset;
+        if (freeBytes < neededBytes) {
+          LOG_ERR("HTTP", "Insufficient SD space: free=%llu required=%llu", static_cast<unsigned long long>(freeBytes),
+                  static_cast<unsigned long long>(neededBytes));
+          insufficientSpace = true;
+          return false;
+        }
+      }
+    }
+#endif
     if (sink.resumeOffset > 0) {
-      file = Storage.open(destPath.c_str(), O_WRONLY | O_APPEND);
+      file = Storage.open(writePath.c_str(), O_WRONLY | O_APPEND);
     } else {
-      fileOpen = Storage.openFileForWrite("HTTP", destPath.c_str(), file);
+      fileOpen = Storage.openFileForWrite("HTTP", writePath.c_str(), file);
       if (!fileOpen) {
         LOG_ERR("HTTP", "Failed to open file for writing");
         return false;
@@ -549,7 +581,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       file.close();
       fileOpen = false;
     }
-    Storage.remove(destPath.c_str());
+    Storage.remove(writePath.c_str());
     sink.rangeIgnored = false;
     sink.resumeOffset = 0;
     sink.downloaded = 0;
@@ -559,15 +591,20 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   }
 
   if (fileOpen) {
-    file.flush();
-    file.close();
+    const bool synced = file.sync();
+    const bool closed = file.close();
+    if (!synced || !closed) {
+      LOG_ERR("HTTP", "Failed to finish downloaded file");
+      result = FILE_ERROR;
+    }
   }
+  if (insufficientSpace) result = INSUFFICIENT_SPACE;
 
   if (result != OK) {
     LOG_ERR("HTTP", "Transfer failed: error=%d downloaded=%zu expected=%zu preservePartial=%d resumePartial=%d",
             static_cast<int>(result), sink.downloaded, sink.total, options.preservePartial, options.resumePartial);
     if (result == ABORTED || !options.preservePartial) {
-      Storage.remove(destPath.c_str());
+      Storage.remove(writePath.c_str());
     }
     return result;
   }
@@ -575,7 +612,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (sink.downloaded == 0) {
     LOG_ERR("HTTP", "Download failed: no data received");
     if (!options.preservePartial) {
-      Storage.remove(destPath.c_str());
+      Storage.remove(writePath.c_str());
     }
     return HTTP_ERROR;
   }
@@ -583,10 +620,18 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (sink.total > 0 && sink.downloaded != sink.total) {
     LOG_ERR("HTTP", "Size mismatch: got %zu, expected %zu", sink.downloaded, sink.total);
     if (!options.preservePartial) {
-      Storage.remove(destPath.c_str());
+      Storage.remove(writePath.c_str());
     }
     return HTTP_ERROR;
   }
+
+  if (options.validate && !options.validate(writePath)) {
+    LOG_ERR("HTTP", "Downloaded file failed validation: %s", writePath.c_str());
+    Storage.remove(writePath.c_str());
+    return HTTP_ERROR;
+  }
+
+  if (options.stageAsPart && !DownloadFileSwap::publish(destPath)) return FILE_ERROR;
 
   return OK;
 }

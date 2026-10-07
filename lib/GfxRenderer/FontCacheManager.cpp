@@ -1,5 +1,6 @@
-#include "FontCacheManager.h"
-
+#if CROSSINK_SCALABLE_FONTS
+#include <HalScalableFont.h>
+#endif
 #include <FontDecompressor.h>
 #include <Logging.h>
 #include <SdCardFont.h>
@@ -7,6 +8,8 @@
 
 #include <algorithm>
 #include <cstring>
+
+#include "FontCacheManager.h"
 
 namespace {
 
@@ -53,6 +56,9 @@ void FontCacheManager::releaseSdFontCaches() {
 
 bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask,
                                     const PreparationPolicy policy) {
+#if CROSSINK_SCALABLE_FONTS
+  ScalableFontAccess access;
+#endif
   // SD card font prewarm path: prewarm all requested styles in one call
   auto it = sdCardFonts_.find(fontId);
   if (it != sdCardFonts_.end()) {
@@ -72,6 +78,31 @@ bool FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
     if (!(styleMask & (1 << i))) continue;
     auto style = static_cast<EpdFontFamily::Style>(i);
     const EpdFontData* data = fontMap_.at(fontId).getData(style);
+#if CROSSINK_SCALABLE_FONTS
+    if (data && data->bitmapHandler && utf8Text) {
+      const auto& family = fontMap_.at(fontId);
+      const char* text = utf8Text;
+      while (*text) {
+        uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text));
+        if (!cp) break;
+        cp = family.applyLigatures(cp, text, style);
+        const auto gd = family.getGlyphData(cp, style);
+        if (!gd.glyph) {
+          if (family.hasCodepoint(cp, style)) {
+            LOG_ERR("FCM", "TTF metrics preparation failed: U+%04X font=%d style=%d", unsigned(cp), fontId, i);
+            return false;
+          }
+          continue;
+        }
+        if (gd.glyph->width && gd.glyph->height && gd.fontData->bitmapHandler &&
+            !gd.fontData->bitmapHandler(gd.fontData->glyphMissCtx, gd.glyph)) {
+          LOG_ERR("FCM", "TTF glyph preparation failed: U+%04X", unsigned(cp));
+          return false;
+        }
+      }
+      continue;
+    }
+#endif
     if (!data || !data->groups) continue;
     int missed = fontDecompressor_->prewarmCache(data, utf8Text);
     if (missed > 0) {

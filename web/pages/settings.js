@@ -5,8 +5,6 @@ let allSettings = [];
   const SLEEP_SCREEN_MODE = {
     QUICK_RESUME: 6
   };
-  const POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX = 15;
-  const LONG_PRESS_MENU_FOOTNOTES_DISPLAY_INDEX = 14;
 
   function escapeHtml(unsafe) {
     return unsafe
@@ -170,14 +168,14 @@ let allSettings = [];
   }
 
   function updateSettingsVisibility() {
-    const shortPwrBtnVal = getControlValue('shortPwrBtn');
-    const longPwrBtnVal = getControlValue('longPwrBtn');
-    const longPressMenuActionVal = getControlValue('longPressMenuAction');
     const pwrBtnFootnoteBackRow = document.getElementById('row-setting-pwrBtnFootnoteBack');
     if (pwrBtnFootnoteBackRow) {
-      if (shortPwrBtnVal === POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX ||
-          longPwrBtnVal === POWER_BUTTON_FOOTNOTES_DISPLAY_INDEX ||
-          longPressMenuActionVal === LONG_PRESS_MENU_FOOTNOTES_DISPLAY_INDEX) {
+      const footnoteActionSelected = ['shortPwrBtn', 'longPwrBtn', 'longPressMenuAction', 'longPressBackAction']
+        .some(key => {
+          const setting = allSettings.find(item => item.key === key);
+          return setting && getControlValue(key) === setting.footnotesIndex;
+        });
+      if (footnoteActionSelected) {
         pwrBtnFootnoteBackRow.style.display = '';
       } else {
         pwrBtnFootnoteBackRow.style.display = 'none';
@@ -187,7 +185,8 @@ let allSettings = [];
 
   function handleSettingChanged(key) {
     syncQuickResumeTimeoutForSleepScreen(key === 'sleepScreen', key === 'quickResumeSleepScreen');
-    if (key === 'shortPwrBtn' || key === 'longPwrBtn' || key === 'longPressMenuAction') {
+    if (key === 'shortPwrBtn' || key === 'longPwrBtn' || key === 'longPressMenuAction' ||
+        key === 'longPressBackAction') {
       updateSettingsVisibility();
     }
     markChanged();
@@ -280,6 +279,9 @@ let allSettings = [];
       for (const key in changes) {
         originalValues[key] = changes[key];
       }
+      if (Object.prototype.hasOwnProperty.call(changes, 'trackReadingStats')) {
+        await loadSettings();
+      }
 
       showMessage('Settings saved successfully!', false);
     } catch (e) {
@@ -288,6 +290,140 @@ let allSettings = [];
     }
 
     btn.textContent = 'Save Settings';
+  }
+
+  // Reader bars use one complete request so the two layouts change together.
+  let statusBars = null;
+
+  function statusBarSelect(id, choices, value, changed) {
+    return '<select id="' + id + '" onchange="' + changed + '">' +
+      choices.map(function(choice) {
+        return '<option value="' + choice.value + '"' + (choice.value === value ? ' selected' : '') +
+          (choice.disabled ? ' disabled' : '') + '>' + escapeHtml(String(choice.label)) + '</option>';
+      }).join('') + '</select>';
+  }
+
+  function statusBarRow(label, control) {
+    return '<div class="setting-row"><span class="setting-name">' + escapeHtml(label) +
+      '</span><span class="setting-control">' + control + '</span></div>';
+  }
+
+  function renderStatusBar(position) {
+    const bar = statusBars[position];
+    const labels = statusBars.labels;
+    const itemOptions = statusBars.options.map(function(option) {
+      return { value: option.value, label: option.label,
+        disabled: (option.value === 1 || option.value === 10) && !statusBars.clockAvailable };
+    });
+    const slotNames = [labels.left + ' 1', labels.left + ' 2', labels.left + ' 3', labels.center,
+      labels.right + ' 1', labels.right + ' 2', labels.right + ' 3'];
+    let html = '<div class="status-bar-editor"><h3>' + escapeHtml(labels[position]) + '</h3>';
+    for (let i = 0; i < bar.slots.length; i++) {
+      html += statusBarRow(slotNames[i], statusBarSelect('bar-' + position + '-slot-' + i,
+        itemOptions, bar.slots[i], 'statusBarChanged()'));
+    }
+    for (const field of [
+      ['percentageFormat', labels.percentageFormat, statusBars.percentageFormats],
+      ['progressBar', labels.progressBar, statusBars.progressModes],
+      ['thickness', labels.thickness, statusBars.thicknesses]
+    ]) {
+      html += statusBarRow(field[1], statusBarSelect('bar-' + position + '-' + field[0],
+        field[2].map(function(label, index) { return { value: index, label: label }; }),
+        bar[field[0]], 'statusBarChanged()'));
+    }
+    html += '<div class="status-bar-preview" id="bar-' + position + '-preview"></div></div>';
+    return html;
+  }
+
+  function renderDisplayStatusBar() {
+    const choices = statusBars.options.filter(function(option) {
+      return [0, 1, 2, 10].includes(option.value);
+    }).map(function(option) {
+      return { value: option.value, label: option.label,
+        disabled: (option.value === 1 || option.value === 10) && !statusBars.clockAvailable };
+    });
+    return '<h3>' + escapeHtml(statusBars.labels.display) + '</h3>' +
+      [statusBars.labels.left, statusBars.labels.center, statusBars.labels.right].map(function(label, index) {
+        return statusBarRow(label, statusBarSelect('display-slot-' + index, choices,
+          statusBars.display[index], 'statusBarChanged()'));
+      }).join('');
+  }
+
+  function readStatusBarForm(position) {
+    const bar = statusBars[position];
+    return {
+      slots: bar.slots.map(function(_, index) {
+        return Number(document.getElementById('bar-' + position + '-slot-' + index).value);
+      }),
+      percentageFormat: Number(document.getElementById('bar-' + position + '-percentageFormat').value),
+      progressBar: Number(document.getElementById('bar-' + position + '-progressBar').value),
+      thickness: Number(document.getElementById('bar-' + position + '-thickness').value)
+    };
+  }
+
+  function updateStatusBarPreview(position) {
+    const bar = readStatusBarForm(position);
+    const examples = ['', '10:30', '85%', '2h 15m', '12m', '4/12', '27',
+      (64.12).toFixed(bar.percentageFormat) + '%', 'Book title', 'Chapter title', statusBars.datePreview];
+    const slot = function(index) { return escapeHtml(examples[bar.slots[index]] || ''); };
+    const right = [4, 5, 6].map(slot).filter(Boolean).join(' &nbsp; ');
+    const progressValue = bar.progressBar === 0 ? 64 : 35;
+    const progress = bar.progressBar === 2 ? '' : '<div class="status-bar-preview-progress" style="height:' +
+      ((bar.thickness + 1) * 2) + 'px"><span style="width:' + progressValue + '%"></span></div>';
+    document.getElementById('bar-' + position + '-preview').innerHTML =
+      (position === 'top' ? progress : '') + '<div class="status-bar-preview-items"><span>' +
+      [slot(0), slot(1), slot(2)].filter(Boolean).join(' &nbsp; ') + '</span><span>' + slot(3) +
+      '</span><span>' + right + '</span></div>' + (position === 'bottom' ? progress : '');
+  }
+
+  function statusBarChanged() {
+    document.getElementById('statusBarsSaveBtn').disabled = false;
+    updateStatusBarPreview('top');
+    updateStatusBarPreview('bottom');
+  }
+
+  async function loadStatusBars() {
+    const container = document.getElementById('status-bars-container');
+    try {
+      const response = await fetch('/api/status-bars');
+      if (!response.ok) throw new Error('Failed to load status bars');
+      statusBars = await response.json();
+      container.innerHTML = '<div class="card"><h2>' + escapeHtml(statusBars.labels.top) + ' / ' +
+        escapeHtml(statusBars.labels.bottom) + '</h2>' + renderStatusBar('top') +
+        renderStatusBar('bottom') + renderDisplayStatusBar() +
+        statusBarRow(statusBars.labels.xtcMode, statusBarSelect('bar-xtc-mode',
+          statusBars.xtcModes.map(function(label, index) { return { value: index, label: label }; }),
+          statusBars.xtcMode, 'statusBarChanged()')) +
+        '<div class="save-container"><button class="save-btn" id="statusBarsSaveBtn" ' +
+        'onclick="saveStatusBars()" disabled>Save Status Bars</button></div></div>';
+      updateStatusBarPreview('top');
+      updateStatusBarPreview('bottom');
+    } catch (error) {
+      console.error(error);
+      container.innerHTML = '<div class="card"><p>Failed to load status bars</p></div>';
+    }
+  }
+
+  async function saveStatusBars() {
+    const btn = document.getElementById('statusBarsSaveBtn');
+    btn.disabled = true;
+    try {
+      const response = await fetch('/api/status-bars', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ top: readStatusBarForm('top'), bottom: readStatusBarForm('bottom'),
+          display: statusBars.display.map(function(_, index) {
+            return Number(document.getElementById('display-slot-' + index).value);
+          }),
+          xtcMode: Number(document.getElementById('bar-xtc-mode').value) })
+      });
+      if (!response.ok) throw new Error(await response.text());
+      showMessage('Status bars saved.', false);
+      await loadStatusBars();
+    } catch (error) {
+      btn.disabled = false;
+      showMessage('Error: ' + error.message, true);
+    }
   }
 
   // --- Wi-Fi Network Management ---
@@ -530,6 +666,7 @@ let allSettings = [];
   // stall long enough to delay or interrupt a response.
   (async () => {
     await loadSettings();
+    await loadStatusBars();
     await loadWifiNetworks();
     await loadOpdsServers();
   })();

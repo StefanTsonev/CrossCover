@@ -23,14 +23,17 @@ constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
     {"progress.bin.bak", "upload_preserve_progress.bin.bak"},
     {"reader_settings.bin", "upload_preserve_reader_settings.bin"},
     {"dictionary_history.txt", "upload_preserve_dictionary_history.txt"},
+    {"reading_stats_off", "upload_preserve_reading_stats_off"},
 };
 
 constexpr PreservedCacheFile PAGE_PROGRESS_FILES[] = {
     {"progress.bin", "upload_preserve_progress.bin"},
+    {"reading_stats_off", "upload_preserve_reading_stats_off"},
 };
 
 constexpr PreservedCacheFile CACHE_CLEAR_USER_STATE_FILES[] = {
     {"dictionary_history.txt", "clear_preserve_dictionary_history.txt"},
+    {"reading_stats_off", "clear_preserve_reading_stats_off"},
 };
 
 struct ResolvedPreservedCacheFile {
@@ -218,6 +221,105 @@ bool restorePreservedFiles(const std::string& cachePath, const std::vector<Resol
   return ok;
 }
 
+bool recoverPreservedTemp(const std::string& cachePath, const std::string& name, const std::string& tmpName) {
+  const std::string tmpPath = cachePath + "." + tmpName;
+  if (!Storage.exists(tmpPath.c_str())) return true;
+  const std::string sourcePath = cachePath + "/" + name;
+  if (Storage.exists(sourcePath.c_str())) return true;
+  if ((!Storage.exists(cachePath.c_str()) && !Storage.mkdir(cachePath.c_str())) ||
+      !Storage.rename(tmpPath.c_str(), sourcePath.c_str())) {
+    LOG_ERR("BookCache", "Failed to recover preserved cache state: %s", sourcePath.c_str());
+    return false;
+  }
+  return true;
+}
+
+std::string statsRecoveryMarkerPath(const std::string& cachePath, const char* statsTmpPrefix) {
+  return cachePath + "." + statsTmpPrefix + "stats_pending";
+}
+
+bool createStatsRecoveryMarker(const std::string& cachePath, const char* statsTmpPrefix) {
+  const std::string markerPath = statsRecoveryMarkerPath(cachePath, statsTmpPrefix);
+  FsFile marker;
+  if (!Storage.openFileForWrite("BookCache", markerPath, marker)) {
+    LOG_ERR("BookCache", "Failed to create stats recovery marker: %s", markerPath.c_str());
+    return false;
+  }
+  const uint8_t value = 1;
+  const bool written = marker.write(&value, sizeof(value)) == sizeof(value) && marker.sync();
+  const bool closed = marker.close();
+  if (!written || !closed) {
+    LOG_ERR("BookCache", "Failed to save stats recovery marker: %s", markerPath.c_str());
+    return false;
+  }
+  return true;
+}
+
+bool removeStatsRecoveryMarker(const std::string& cachePath, const char* statsTmpPrefix) {
+  const std::string markerPath = statsRecoveryMarkerPath(cachePath, statsTmpPrefix);
+  if (!Storage.exists(markerPath.c_str())) return true;
+  if (Storage.remove(markerPath.c_str())) return true;
+  LOG_ERR("BookCache", "Failed to remove stats recovery marker: %s", markerPath.c_str());
+  return false;
+}
+
+bool recoverInterruptedPreservation(const std::string& cachePath, const PreservedCacheFile* fixedFiles,
+                                    const size_t fixedCount, const bool includeStatsFiles, const char* statsTmpPrefix) {
+  for (size_t i = 0; i < fixedCount; ++i) {
+    if (!recoverPreservedTemp(cachePath, fixedFiles[i].name, fixedFiles[i].tmpName)) return false;
+  }
+  if (!includeStatsFiles) return true;
+  if (!statsTmpPrefix) {
+    LOG_ERR("BookCache", "Missing stats recovery temp prefix: %s", cachePath.c_str());
+    return false;
+  }
+  // Normal clears do not enumerate the potentially large /.crosspoint folder.
+  // A marker is synced before any stats file is moved out of its cache.
+  if (!Storage.exists(statsRecoveryMarkerPath(cachePath, statsTmpPrefix).c_str())) return true;
+
+  // Stats moved out of the cache are absent from the cache-directory scan in
+  // resolvePreservedFiles(). Find their temporary siblings before that scan.
+  const size_t slash = cachePath.find_last_of('/');
+  if (slash == std::string::npos) return false;
+  const std::string parentPath = slash == 0 ? "/" : cachePath.substr(0, slash);
+  const std::string prefix = cachePath.substr(slash + 1) + "." + statsTmpPrefix;
+  FsFile parent = Storage.open(parentPath.c_str());
+  if (!parent || !parent.isDirectory()) {
+    if (parent) parent.close();
+    if (!Storage.exists(parentPath.c_str()) && !Storage.exists(cachePath.c_str())) return true;
+    LOG_ERR("BookCache", "Failed to inspect preserved stats beside: %s", cachePath.c_str());
+    return false;
+  }
+  std::vector<std::string> pendingStats;
+  pendingStats.reserve(MAX_STATS_FILES_TO_PRESERVE);
+  char entryName[128];
+  for (FsFile entry = parent.openNextFile(); entry; entry = parent.openNextFile()) {
+    const bool isDirectory = entry.isDirectory();
+    const size_t nameLen = entry.getName(entryName, sizeof(entryName));
+    entry.close();
+    if (isDirectory || nameLen >= sizeof(entryName) || nameLen <= prefix.size() ||
+        strncmp(entryName, prefix.c_str(), prefix.size()) != 0 || !isStatsFileName(entryName + prefix.size()))
+      continue;
+    if (pendingStats.size() == MAX_STATS_FILES_TO_PRESERVE) {
+      parent.close();
+      LOG_ERR("BookCache", "Too many interrupted stats files beside: %s", cachePath.c_str());
+      return false;
+    }
+    pendingStats.emplace_back(entryName + prefix.size());
+  }
+  const bool iterationFailed = FsHelpers::directoryIterationFailed(parent);
+  parent.close();
+  if (iterationFailed) {
+    LOG_ERR("BookCache", "Failed to inspect preserved stats beside: %s", cachePath.c_str());
+    return false;
+  }
+  if (!std::all_of(pendingStats.begin(), pendingStats.end(), [&](const std::string& name) {
+        return recoverPreservedTemp(cachePath, name, std::string(statsTmpPrefix) + name);
+      }))
+    return false;
+  return removeStatsRecoveryMarker(cachePath, statsTmpPrefix);
+}
+
 bool preserveUserStateFiles(const std::string& cachePath, const std::vector<ResolvedPreservedCacheFile>& files,
                             bool* movedFiles) {
   bool ok = true;
@@ -228,12 +330,16 @@ bool preserveUserStateFiles(const std::string& cachePath, const std::vector<Reso
     const std::string sourcePath = cachePath + "/" + files[i].name;
     const std::string tmpPath = cachePath + "." + files[i].tmpName;
 
+    if (!Storage.exists(sourcePath.c_str())) {
+      if (Storage.exists(tmpPath.c_str())) {
+        LOG_ERR("BookCache", "Preserved state has no restored source: %s", sourcePath.c_str());
+        ok = false;
+      }
+      continue;
+    }
     if (Storage.exists(tmpPath.c_str()) && !Storage.remove(tmpPath.c_str())) {
       LOG_ERR("BookCache", "Failed to remove stale preserved state temp: %s", tmpPath.c_str());
       ok = false;
-      continue;
-    }
-    if (!Storage.exists(sourcePath.c_str())) {
       continue;
     }
     if (!Storage.rename(sourcePath.c_str(), tmpPath.c_str())) {
@@ -266,32 +372,38 @@ bool clearCacheDirectoryPreservingFiles(const std::string& cachePath, const Pres
     return false;
   }
 
-  if (!Storage.exists(cachePath.c_str())) {
-    return true;
-  }
+  if (!recoverInterruptedPreservation(cachePath, fixedPreservedFiles, fixedPreservedCount, includeStatsFiles,
+                                      statsTmpPrefix))
+    return false;
+  if (!Storage.exists(cachePath.c_str())) return true;
 
   std::vector<ResolvedPreservedCacheFile> preservedFiles;
   if (!resolvePreservedFiles(cachePath, fixedPreservedFiles, fixedPreservedCount, includeStatsFiles, statsTmpPrefix,
                              preservedFiles)) {
     return false;
   }
+  const bool hasStats = includeStatsFiles && preservedFiles.size() > fixedPreservedCount;
+  if (hasStats && !createStatsRecoveryMarker(cachePath, statsTmpPrefix)) return false;
 
   bool movedFiles[MAX_PRESERVED_CACHE_FILES + MAX_STATS_FILES_TO_PRESERVE] = {};
   const bool preserveOk = preserveUserStateFiles(cachePath, preservedFiles, movedFiles);
   if (!preserveOk) {
-    if (!restorePreservedFiles(cachePath, preservedFiles, movedFiles)) {
+    const bool restored = restorePreservedFiles(cachePath, preservedFiles, movedFiles);
+    if (!restored) {
       LOG_ERR("BookCache", "Failed to roll back preserved state after aborting cache clear: %s", cachePath.c_str());
     }
+    if (hasStats && restored) removeStatsRecoveryMarker(cachePath, statsTmpPrefix);
     LOG_ERR("BookCache", "Aborted cache clear because preserved state could not be moved: %s", cachePath.c_str());
     return false;
   }
 
   const bool clearOk = Storage.removeDir(cachePath.c_str());
   const bool restoreOk = restorePreservedFiles(cachePath, preservedFiles, movedFiles);
+  const bool markerOk = !hasStats || !restoreOk || removeStatsRecoveryMarker(cachePath, statsTmpPrefix);
   if (!clearOk) {
     LOG_ERR("BookCache", "Failed to clear cache directory: %s", cachePath.c_str());
   }
-  return clearOk && restoreOk;
+  return clearOk && restoreOk && markerOk;
 }
 
 }  // namespace
@@ -324,27 +436,33 @@ bool clearBookCachePreservingUserState(const std::string& path) {
     return false;
   }
 
-  std::vector<ResolvedPreservedCacheFile> resolvedFiles;
   const bool includeStatsFiles = FsHelpers::hasEpubExtension(path) || FsHelpers::hasXtcExtension(path);
+  if (!recoverInterruptedPreservation(cachePath, preservedFiles, preservedCount, includeStatsFiles, "upload_preserve_"))
+    return false;
+
+  std::vector<ResolvedPreservedCacheFile> resolvedFiles;
   if (!resolvePreservedFiles(cachePath, preservedFiles, preservedCount, includeStatsFiles, "upload_preserve_",
                              resolvedFiles)) {
     return false;
   }
+  const bool hasStats = includeStatsFiles && resolvedFiles.size() > preservedCount;
+  if (hasStats && !createStatsRecoveryMarker(cachePath, "upload_preserve_")) return false;
 
   bool movedFiles[MAX_PRESERVED_CACHE_FILES + MAX_STATS_FILES_TO_PRESERVE] = {};
   const bool preserveOk = preserveUserStateFiles(cachePath, resolvedFiles, movedFiles);
   if (!preserveOk) {
-    if (!restorePreservedFiles(cachePath, resolvedFiles, movedFiles)) {
+    const bool restored = restorePreservedFiles(cachePath, resolvedFiles, movedFiles);
+    if (!restored) {
       LOG_ERR("BookCache", "Failed to roll back preserved state after aborting cache clear: %s", cachePath.c_str());
     }
+    if (hasStats && restored) removeStatsRecoveryMarker(cachePath, "upload_preserve_");
     LOG_ERR("BookCache", "Aborted cache clear because user state could not be preserved: %s", cachePath.c_str());
     return false;
   }
   const bool clearOk = clearBookCacheForPath(path);
   const bool restoreOk = restorePreservedFiles(cachePath, resolvedFiles, movedFiles);
-  if (clearOk) {
-  }
-  return clearOk && restoreOk;
+  const bool markerOk = !hasStats || !restoreOk || removeStatsRecoveryMarker(cachePath, "upload_preserve_");
+  return clearOk && restoreOk && markerOk;
 }
 
 bool clearBookCacheDirectoryPreservingStats(const std::string& cachePath) {

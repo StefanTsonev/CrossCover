@@ -149,6 +149,9 @@ void TxtReaderActivity::onEnter() {
 void TxtReaderActivity::onExit() {
   mappedInput.setReaderTouchscreenOverride(false);
   Activity::onExit();
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    fontCache->releaseSdFontCaches();
+  }
 
   // Deactivate reader-specific front button mapping.
   mappedInput.setReaderMode(false);
@@ -201,7 +204,9 @@ void TxtReaderActivity::loop() {
 #endif
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
   if (touch.tapped &&
-      ReaderUtils::isBottomStatusBarTap(renderer, touch.y, UITheme::getInstance().getStatusBarHeight())) {
+      (ReaderUtils::isBottomStatusBarTap(renderer, touch.y, UITheme::getInstance().getStatusBarHeight()) ||
+       ReaderUtils::isTopStatusBarTap(renderer, touch.y,
+                                      UITheme::getReaderStatusBarHeight(ReaderStatusBarPosition::Top)))) {
     if (SETTINGS.tapToHideStatusBar) {
       statusBarVisible = !statusBarVisible;
       requestUpdate();
@@ -227,6 +232,16 @@ void TxtReaderActivity::loop() {
       mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() >= LONG_PRESS_MENU_MS) {
     longPressMenuHandled = true;
     cycleReaderFont();
+    return;
+  }
+
+  if (SETTINGS.longPressMenuAction == CrossPointSettings::LONG_MENU_LIBRARY &&
+      mappedInput.getHeldTime() >= LONG_PRESS_MENU_MS &&
+      (mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
+       mappedInput.wasReleased(MappedInputManager::Button::Confirm))) {
+    longPressMenuHandled = mappedInput.isPressed(MappedInputManager::Button::Confirm);
+    mappedInput.suppressNextConfirmRelease();
+    activityManager.goToLibrary();
     return;
   }
 
@@ -258,42 +273,46 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  const bool sideLongPressChangesFont =
-      SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_FONT_SIZE;
-  const bool sideLongPressChangesOrientation =
-      SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_ORIENTATION_CHANGE;
-  if (sideLongPressChangesFont || sideLongPressChangesOrientation) {
-    const bool topReleased = mappedInput.wasReleased(MappedInputManager::Button::Up);
-    const bool bottomReleased = mappedInput.wasReleased(MappedInputManager::Button::Down);
-    if (sideButtonLongPressHandled && (topReleased || bottomReleased)) {
-      sideButtonLongPressHandled = false;
-      return;
-    }
-
-    const bool longPressReady = mappedInput.getHeldTime() > ReaderUtils::SKIP_HOLD_MS;
-    const bool topLongPressed =
-        longPressReady && (mappedInput.isPressed(MappedInputManager::Button::Up) || topReleased);
-    const bool bottomLongPressed =
-        longPressReady && (mappedInput.isPressed(MappedInputManager::Button::Down) || bottomReleased);
-
-    if (!sideButtonLongPressHandled && (topLongPressed || bottomLongPressed)) {
-      sideButtonLongPressHandled = !(topReleased || bottomReleased);
-      if (sideLongPressChangesFont) {
-        changeReaderFontSize(/*larger=*/topLongPressed);
-        return;
+  const auto side = sideButtonShortcuts.update(mappedInput, millis());
+  if (SideButtonShortcuts::shouldConsume(side, mappedInput)) {
+    if (side.triggered) {
+      if (side.longPress)
+        mappedInput.suppressNextSideRelease(side.up ? MappedInputManager::Button::Up
+                                                    : MappedInputManager::Button::Down);
+      switch (side.action) {
+        case CrossPointSettings::PAGE_TURN:
+          if (currentPage < totalPages - 1) {
+            currentPage++;
+            requestUpdate();
+          }
+          break;
+        case CrossPointSettings::SIDE_INCREASE_FONT:
+        case CrossPointSettings::SIDE_DECREASE_FONT:
+          changeReaderFontSize(side.action == CrossPointSettings::SIDE_INCREASE_FONT);
+          break;
+        case CrossPointSettings::SIDE_ROTATE_COUNTERCLOCKWISE:
+        case CrossPointSettings::SIDE_ROTATE_CLOCKWISE:
+          handleTwoFingerRotation(side.action == CrossPointSettings::SIDE_ROTATE_CLOCKWISE);
+          break;
+        case CrossPointSettings::SIDE_ROTATE_FLIP:
+          applyReaderOrientation(ReaderUtils::flippedOrientation(SETTINGS.orientation));
+          break;
+        case CrossPointSettings::SIDE_PREVIOUS_CHAPTER:
+        case CrossPointSettings::SIDE_NEXT_CHAPTER:
+        case CrossPointSettings::IGNORE:
+          // Plain text has no chapter model.
+          break;
+        default: {
+          const auto action = static_cast<CrossPointSettings::SHORT_PWRBTN>(side.action);
+          if (action == CrossPointSettings::QUICK_LOCK)
+            handleGlobalPowerButtonAction(action, SideButtonShortcuts::quickLockTrigger(side));
+          else if (!handleShortcutAction(action))
+            handleGlobalPowerButtonAction(action);
+          break;
+        }
       }
-      SETTINGS.orientation = ReaderUtils::rotatedOrientation(SETTINGS.orientation, /*clockwise=*/bottomLongPressed);
-      SETTINGS.saveToFile();
-      {
-        RenderLock lock(*this);
-        ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-        pageOffsets.clear();
-        currentPageLines.clear();
-        initialized = false;
-      }
-      requestUpdate();
-      return;
     }
+    return;
   }
 
   const bool frontLongPressChangesFont = SETTINGS.longPressButtonBehavior == CrossPointSettings::FONT_SIZE_CHANGE;
@@ -417,7 +436,11 @@ bool TxtReaderActivity::handleTwoFingerSwipeAction(const CrossPointSettings::TWO
 }
 
 bool TxtReaderActivity::handleTwoFingerRotation(const bool clockwise) {
-  SETTINGS.orientation = ReaderUtils::rotatedOrientation(SETTINGS.orientation, clockwise);
+  return applyReaderOrientation(ReaderUtils::rotatedOrientation(SETTINGS.orientation, clockwise));
+}
+
+bool TxtReaderActivity::applyReaderOrientation(const uint8_t orientation) {
+  SETTINGS.orientation = orientation;
   SETTINGS.saveToFile();
   {
     RenderLock lock(*this);
@@ -472,8 +495,10 @@ bool TxtReaderActivity::supportsQuickAction(const CrossPointSettings::SHORT_PWRB
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_DARK_MODE:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FONT:
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
+    case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT:
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
+    case CrossPointSettings::SHORT_PWRBTN::HOME_READER:
       return true;
     default:
       return false;
@@ -495,12 +520,15 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CALIBRE_WIRELESS:
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::JOIN_NETWORK:
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::CREATE_HOTSPOT:
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_DARK_MODE:
@@ -508,6 +536,9 @@ bool TxtReaderActivity::executeReaderShortcutAction(const CrossPointSettings::SH
       return true;
     case CrossPointSettings::SHORT_PWRBTN::FILE_BROWSER:
       activityManager.goToFileBrowser(txt ? txt->getPath() : "");
+      return true;
+    case CrossPointSettings::SHORT_PWRBTN::LIBRARY:
+      activityManager.goToLibrary();
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_HOME_BUTTON_IN_READER:
       toggleHomeButtonInReader();
@@ -569,12 +600,15 @@ bool TxtReaderActivity::executeLongPressBackAction() {
       activityManager.goToFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CALIBRE_WIRELESS:
+      saveProgressBeforeRestart();
       activityManager.goToCalibreWireless(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_JOIN_NETWORK:
+      saveProgressBeforeRestart();
       activityManager.goToJoinNetworkFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_HOTSPOT:
+      saveProgressBeforeRestart();
       activityManager.goToHotspotFileTransfer(txt ? txt->getPath() : "");
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_TOGGLE_DARK_MODE:
@@ -582,6 +616,9 @@ bool TxtReaderActivity::executeLongPressBackAction() {
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_FILE_BROWSER:
       activityManager.goToFileBrowser(txt ? txt->getPath() : "");
+      return true;
+    case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_LIBRARY:
+      activityManager.goToLibrary();
       return true;
     case CrossPointSettings::LONG_PRESS_MENU_ACTION::LONG_MENU_CREATE_CLIPPING:
       return false;
@@ -595,6 +632,7 @@ bool TxtReaderActivity::handleShortcutAction(const uint8_t action) {
 }
 
 bool TxtReaderActivity::handleShortcutAction(const CrossPointSettings::SHORT_PWRBTN action) {
+  if (action == CrossPointSettings::SHORT_PWRBTN::HOME_READER) return dispatchShortcutAction(action);
   if (action == CrossPointSettings::SHORT_PWRBTN::QUICK_ACTIONS) {
     QuickActions::showConfiguredPopup(
         quickActionsPopup, [this] { requestUpdate(); },
@@ -622,22 +660,23 @@ void TxtReaderActivity::initializeReader() {
   cachedVerticalMargin = SETTINGS.screenMarginVertical;
   cachedHorizontalMargin = SETTINGS.screenMarginHorizontal;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
+  cachedTopStatusBarHeight = ReaderUtils::getTopStatusBarReservedHeight(renderer);
+  cachedBottomStatusBarHeight = UITheme::getInstance().getStatusBarHeight();
 
   // Calculate viewport dimensions
   renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
                                    &cachedOrientedMarginLeft);
   cachedOrientedMarginLeft += cachedHorizontalMargin;
   cachedOrientedMarginRight += cachedHorizontalMargin;
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
+  const int topStatusBarReservedHeight = cachedTopStatusBarHeight;
   if (topStatusBarReservedHeight > 0) {
     cachedOrientedMarginTop += std::max(static_cast<int>(cachedVerticalMargin),
-                                        topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
+                                        topStatusBarReservedHeight + ReaderUtils::TOP_STATUS_BAR_TEXT_PADDING);
   } else {
     cachedOrientedMarginTop += cachedVerticalMargin;
   }
   cachedOrientedMarginBottom += std::max(
-      cachedVerticalMargin,
-      static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight() + ReaderUtils::STATUS_BAR_TEXT_PADDING));
+      cachedVerticalMargin, static_cast<uint8_t>(cachedBottomStatusBarHeight + ReaderUtils::STATUS_BAR_TEXT_PADDING));
 
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
@@ -745,9 +784,26 @@ void TxtReaderActivity::render(RenderLock&&) {
     return;
   }
 
+  bool relayout = false;
+  size_t readingOffset = 0;
+  if (initialized && (cachedTopStatusBarHeight != ReaderUtils::getTopStatusBarReservedHeight(renderer) ||
+                      cachedBottomStatusBarHeight != UITheme::getInstance().getStatusBarHeight())) {
+    if (currentPage >= 0 && currentPage < static_cast<int>(pageOffsets.size())) {
+      readingOffset = pageOffsets[currentPage];
+      relayout = true;
+    }
+    if (!flushQueuedProgress()) LOG_ERR("TRS", "Failed to save progress before status bar relayout");
+    initialized = false;
+  }
+
   // Initialize reader if not done
   if (!initialized) {
     initializeReader();
+    if (relayout && !pageOffsets.empty()) {
+      const auto nextPage = std::upper_bound(pageOffsets.begin(), pageOffsets.end(), readingOffset);
+      currentPage = std::max(0, static_cast<int>(nextPage - pageOffsets.begin()) - 1);
+      if (!saveProgress(currentPage)) LOG_ERR("TRS", "Failed to save progress after status bar relayout");
+    }
   }
 
   if (pageOffsets.empty()) {
@@ -829,10 +885,6 @@ void TxtReaderActivity::renderPage() {
   // BW rendering
   renderLines();
   renderStatusBar();
-  if (statusBarVisible) {
-    GUI.drawTopStatusBarClock(renderer, UITheme::getInstance().getMetrics().topPadding, nullptr, true, 0,
-                              ReaderUtils::readerDarkModeEnabled());
-  }
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
@@ -848,12 +900,24 @@ void TxtReaderActivity::renderStatusBar() const {
   }
 
   const float progress = totalPages > 0 ? (currentPage + 1) * 100.0f / totalPages : 0;
+  const auto needsTitle = [](const ReaderStatusBarConfig& bar) {
+    return bar.contains(ReaderStatusBarItem::TitleBook) || bar.contains(ReaderStatusBarItem::TitleChapter);
+  };
   std::string title;
-  if (SETTINGS.statusBarSpec().showsTitle()) {
+  if (needsTitle(SETTINGS.readerStatusBar(ReaderStatusBarPosition::Top)) ||
+      needsTitle(SETTINGS.readerStatusBar(ReaderStatusBarPosition::Bottom))) {
     title = txt->getTitle();
   }
-  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title.c_str(), 0, 0, false, nullptr,
-                    ReaderUtils::readerDarkModeEnabled());
+  ReaderStatusBarContent content;
+  content.bookProgress = progress;
+  content.chapterPage = currentPage + 1;
+  content.chapterPageCount = totalPages;
+  content.bookTitle = title.c_str();
+  // TXT has no chapter metadata; preserve its existing title fallback.
+  content.chapterTitle = content.bookTitle;
+  content.darkMode = ReaderUtils::readerDarkModeEnabled();
+  GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Top, content);
+  GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content);
 }
 
 bool TxtReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) {
@@ -926,6 +990,7 @@ void TxtReaderActivity::loadProgress() {
         currentPage = 0;
       }
     }
+    f.close();
   }
 }
 
@@ -1091,10 +1156,10 @@ bool TxtReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gfx
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
   marginLeft += horizontalMargin;
   marginRight += horizontalMargin;
-  const int topStatusBarReservedHeight = ReaderUtils::getTopClockStatusBarReservedHeight(renderer);
+  const int topStatusBarReservedHeight = ReaderUtils::getTopStatusBarReservedHeight(renderer);
   if (topStatusBarReservedHeight > 0) {
-    marginTop +=
-        std::max(static_cast<int>(verticalMargin), topStatusBarReservedHeight + ReaderUtils::TOP_CLOCK_TEXT_PADDING);
+    marginTop += std::max(static_cast<int>(verticalMargin),
+                          topStatusBarReservedHeight + ReaderUtils::TOP_STATUS_BAR_TEXT_PADDING);
   } else {
     marginTop += verticalMargin;
   }
@@ -1245,4 +1310,12 @@ ScreenshotInfo TxtReaderActivity::getScreenshotInfo() const {
   info.progressPercent = totalPages > 0 ? static_cast<int>((currentPage + 1) * 100.0f / totalPages + 0.5f) : 0;
   if (info.progressPercent > 100) info.progressPercent = 100;
   return info;
+}
+
+void TxtReaderActivity::saveProgressBeforeRestart() {
+  // Silent network-mode restarts skip onExit(); coordinate with the render task.
+  RenderLock lock(*this);
+  if (!(flushQueuedProgress())) {
+    LOG_ERR("READER", "Failed to save progress before restart");
+  }
 }

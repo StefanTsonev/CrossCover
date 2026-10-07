@@ -55,7 +55,7 @@ bool formatHeaderDateImpl(char* buf, const size_t len) {
 bool formatHeaderDateText(char* buffer, const size_t length) { return formatHeaderDateImpl(buffer, length); }
 
 int headerDateReservedWidth(const GfxRenderer& renderer) {
-  char dateBuf[13];
+  char dateBuf[32];
   if (!formatHeaderDateImpl(dateBuf, sizeof(dateBuf))) return 0;
 
   return renderer.getTextWidth(UI_10_FONT_ID, dateBuf) + kHeaderDateRightInset;
@@ -78,7 +78,7 @@ void drawHeaderDateAtLineBottom(const GfxRenderer& renderer, const int pageWidth
 }
 
 void drawHeaderDateAtBaseline(const GfxRenderer& renderer, const int pageWidth, const int baselineY) {
-  char dateBuf[13];
+  char dateBuf[32];
   if (!formatHeaderDateImpl(dateBuf, sizeof(dateBuf))) return;
 
   constexpr int dateFontId = UI_10_FONT_ID;

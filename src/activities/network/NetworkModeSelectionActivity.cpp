@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
@@ -41,8 +42,9 @@ constexpr StrId menuDescs[] = {StrId::STR_JOIN_DESC, StrId::STR_CALIBRE_DESC, St
 constexpr UIIcon menuIcons[] = {UIIcon::Wifi, UIIcon::Library, UIIcon::Hotspot, UIIcon::Transfer, UIIcon::Transfer};
 #endif
 
-constexpr int MENU_ITEM_COUNT = sizeof(menuModes) / sizeof(menuModes[0]);
-constexpr int LIST_ITEM_COUNT = MENU_ITEM_COUNT + 1;
+constexpr int ALL_MENU_ITEM_COUNT = sizeof(menuModes) / sizeof(menuModes[0]);
+int menuItemCount() { return ALL_MENU_ITEM_COUNT - (SETTINGS.shouldTrackReadingStats() ? 0 : 1); }
+int listItemCount() { return menuItemCount() + 1; }
 constexpr int NEARBY_SECTION_INDEX = CROSSINK_APP_CAP_USB_DRIVE ? 4 : 3;
 
 int listIndexForMenuIndex(const int menuIndex) { return menuIndex < NEARBY_SECTION_INDEX ? menuIndex : menuIndex + 1; }
@@ -52,12 +54,12 @@ NetworkModeSelectionActivity::NetworkModeSelectionActivity(GfxRenderer& renderer
     : Activity("NetworkModeSelection", renderer, mappedInput), ui(renderer) {}
 
 void NetworkModeSelectionActivity::selectCurrent() {
-  if (selectedIndex >= 0 && selectedIndex < MENU_ITEM_COUNT) onModeSelected(menuModes[selectedIndex]);
+  if (selectedIndex >= 0 && selectedIndex < menuItemCount()) onModeSelected(menuModes[selectedIndex]);
 }
 
 void NetworkModeSelectionActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<NetworkModeSelectionActivity*>(user);
-  if (event.value < 0 || event.value >= MENU_ITEM_COUNT) return;
+  if (event.value < 0 || event.value >= menuItemCount()) return;
   self->selectedIndex = event.value;
   // Selection leaves this screen; a lingering flash would gray an unrelated
   // element on the next render.
@@ -69,10 +71,11 @@ void NetworkModeSelectionActivity::onEnter() {
   Activity::onEnter();
 
   selectedIndex = 0;
+  buttonSelectionActive = !mappedInput.hasTouchHardware();
   ui.closeRouting();
   visibleRows = 1;
   topIndex = 0;
-  listNav.reset(listIndexForMenuIndex(selectedIndex));
+  listNav.reset(buttonSelectionActive ? listIndexForMenuIndex(selectedIndex) : -1);
   ui.reset();
   ui.app.on(ACTION_ROW, &NetworkModeSelectionActivity::onRowEvent, this);
   ui.app.setScreen(&NetworkModeSelectionActivity::listScreen, this);
@@ -116,14 +119,14 @@ void NetworkModeSelectionActivity::loop() {
     bool moved = false;
     {
       RenderLock lock(*this);
-      listNav.selected = listIndexForMenuIndex(selectedIndex);
+      listNav.selected = buttonSelectionActive ? listIndexForMenuIndex(selectedIndex) : -1;
       listNav.top = topIndex;
       listNav.visibleRows = visibleRows;
       // Page by the rows the last layout measured, not the fixed-height
       // estimate: wrapped subtitles fit fewer rows, and paging by the larger
       // estimate would skip the ones in between.
-      const int page = listNav.pageRowsFor(LIST_ITEM_COUNT);
-      moved = listNav.scrollBy(swipe == MappedInputManager::SwipeDir::Up ? page : -page, LIST_ITEM_COUNT);
+      const int page = listNav.pageRowsFor(listItemCount());
+      moved = listNav.scrollBy(swipe == MappedInputManager::SwipeDir::Up ? page : -page, listItemCount());
       topIndex = listNav.top;
     }
     if (moved) {
@@ -136,11 +139,12 @@ void NetworkModeSelectionActivity::loop() {
   buttonNavigator.onNext([this] {
     {
       RenderLock lock(*this);
-      selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEM_COUNT);
+      selectedIndex = ButtonNavigator::nextIndex(selectedIndex, menuItemCount());
+      buttonSelectionActive = true;
       listNav.selected = listIndexForMenuIndex(selectedIndex);
       listNav.top = topIndex;
       listNav.visibleRows = visibleRows;
-      listNav.follow(LIST_ITEM_COUNT);
+      listNav.follow(listItemCount());
       topIndex = listNav.top;
     }
     requestUpdate();
@@ -149,11 +153,12 @@ void NetworkModeSelectionActivity::loop() {
   buttonNavigator.onPrevious([this] {
     {
       RenderLock lock(*this);
-      selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEM_COUNT);
+      selectedIndex = ButtonNavigator::previousIndex(selectedIndex, menuItemCount());
+      buttonSelectionActive = true;
       listNav.selected = listIndexForMenuIndex(selectedIndex);
       listNav.top = topIndex;
       listNav.visibleRows = visibleRows;
-      listNav.follow(LIST_ITEM_COUNT);
+      listNav.follow(listItemCount());
       topIndex = listNav.top;
     }
     requestUpdate();
@@ -173,8 +178,8 @@ void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   std::vector<fui::ListItem> items;
-  items.reserve(LIST_ITEM_COUNT);
-  for (int i = 0; i < MENU_ITEM_COUNT; i++) {
+  items.reserve(listItemCount());
+  for (int i = 0; i < menuItemCount(); i++) {
     if (i == NEARBY_SECTION_INDEX) {
       fui::ListItem header;
       header.label = I18N.get(StrId::STR_NEARBY_DEVICE);
@@ -201,7 +206,6 @@ void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
   fui::ListProps props;
   props.items = items.data();
   props.count = static_cast<uint16_t>(items.size());
-  props.selectedIndex = static_cast<int16_t>(listIndexForMenuIndex(selectedIndex));
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.labelText = screen.theme().bodyText;
@@ -217,10 +221,10 @@ void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.sectionGap = 10;
   const auto rows = configureUiList(props, screen.theme(), screen.body(), UiListRowType::WithSubtitle);
   visibleRows = rows > 0 ? rows : 1;
-  listNav.selected = listIndexForMenuIndex(selectedIndex);
+  listNav.selected = buttonSelectionActive ? listIndexForMenuIndex(selectedIndex) : -1;
   listNav.top = topIndex;
   listNav.visibleRows = visibleRows;
-  listNav.syncToProps(screen.body(), props.rowHeight, props.rowGap, LIST_ITEM_COUNT, props);
+  listNav.syncToProps(screen.body(), props.rowHeight, props.rowGap, listItemCount(), props);
   topIndex = listNav.top;
   screen.list(props);
   topIndex = listNav.top;

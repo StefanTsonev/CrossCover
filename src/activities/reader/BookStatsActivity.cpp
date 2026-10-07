@@ -76,7 +76,10 @@ void BookStatsActivity::saveStats() {
     return;
   }
 
-  stats.save(bookCachePath);
+  if (!stats.save(bookCachePath)) {
+    LOG_ERR("BookStats", "Could not save book stats");
+    return;
+  }
   globalStats.save();
   refreshAllDevicesStats();
   didChangeStats = false;

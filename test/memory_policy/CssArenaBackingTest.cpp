@@ -14,7 +14,8 @@ struct CssArenaBackingTest : testing::Test {
   }
   void createCache() {
     const std::string text =
-        "p { text-align: center; margin-top: 12px; } .em { font-weight: bold; } div p { font-style: italic; } "
+        "p { text-align: center; margin-top: 12px; font-size: 150%; } .em { font-weight: bold; } div p { font-style: "
+        "italic; } "
         ".plain { list-style-type: none; }";
     Storage.put("input.css", {text.begin(), text.end()});
     FsFile file;
@@ -33,6 +34,9 @@ struct CssArenaBackingTest : testing::Test {
     EXPECT_TRUE(style.hasTextAlign());
     EXPECT_TRUE(style.hasMarginTop());
     EXPECT_EQ(style.marginTop.value, 12);
+    ASSERT_TRUE(style.hasFontSize());
+    EXPECT_EQ(style.fontSize.value, 150);
+    EXPECT_EQ(style.fontSize.unit, CssUnit::Percent);
     EXPECT_EQ(style.fontWeight, CssFontWeight::Bold);
     EXPECT_EQ(style.fontStyle, CssFontStyle::Italic);
     EXPECT_EQ(style.textAlign, CssTextAlign::Center);

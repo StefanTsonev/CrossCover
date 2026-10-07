@@ -1,0 +1,8 @@
+bitter_regular.ttf
+bitter_bold.ttf
+bitter_italic.ttf
+bitter_bolditalic.ttf
+lexenddeca_regular.ttf
+lexenddeca_bold.ttf
+lexenddeca_italic.ttf
+lexenddeca_bolditalic.ttf

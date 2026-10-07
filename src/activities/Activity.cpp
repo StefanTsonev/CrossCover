@@ -1,6 +1,10 @@
 #include "Activity.h"
 
 #include "ActivityManager.h"
+#include "CrossPointState.h"
+#include "GlobalActions.h"
+#include "KOReaderCredentialStore.h"
+#include "reader/EpubReaderMenuModel.h"
 
 void Activity::onEnter() { LOG_DBG("ACT", "Entering activity: %s", name.c_str()); }
 
@@ -27,3 +31,35 @@ void Activity::finishAfterBackPress() {
 }
 
 void Activity::finish() { activityManager.popActivity(); }
+
+bool Activity::handleFrontlightPanelResult(const FrontlightPanelResult& result) {
+  if (result.bookPath.empty() || result.action == FrontlightPanelAction::None) return false;
+  if (result.action != FrontlightPanelAction::SyncProgress &&
+      result.action != FrontlightPanelAction::NearbyPositionSync &&
+      result.action != FrontlightPanelAction::SendNearbyBook) {
+    return false;
+  }
+
+  // Only Home has a persisted drawer return route. Other screens use the
+  // normal external-book flow, which returns sync to the book reader.
+  const bool restoreHomeDrawer = isHomeActivity();
+  PendingOverlayResume resume;
+  resume.origin = PendingOverlayOrigin::Home;
+  resume.overlay = PendingOverlayType::FrontlightDrawer;
+  resume.selectedIndex = result.state.selectedAction;
+  resume.bookPath = result.bookPath;
+  resume.returnHomeAfterReaderFlow = result.action == FrontlightPanelAction::NearbyPositionSync;
+  if (result.action == FrontlightPanelAction::SyncProgress) {
+    if (restoreHomeDrawer && KOREADER_STORE.hasCredentials()) APP_STATE.setPendingOverlayResume(resume);
+    return startGlobalSyncProgress();
+  }
+  if (result.action == FrontlightPanelAction::NearbyPositionSync) {
+    activityManager.goToReaderAndRunMenuAction(result.bookPath,
+                                               static_cast<uint8_t>(EpubReaderMenuAction::NEARBY_POSITION_SYNC));
+    if (restoreHomeDrawer) APP_STATE.setPendingOverlayResume(std::move(resume));
+    return true;
+  }
+  if (!activityManager.goToNearbyBookSend(result.bookPath, false)) return false;
+  if (restoreHomeDrawer) APP_STATE.setPendingOverlayResume(std::move(resume));
+  return true;
+}

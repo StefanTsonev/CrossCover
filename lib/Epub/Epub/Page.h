@@ -49,16 +49,18 @@ class PageLine final : public PageElement {
 // New PageImage class
 class PageImage final : public PageElement {
   std::unique_ptr<ImageBlock> imageBlock;
+  bool inlineImage = false;
 
  public:
-  PageImage(std::unique_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos)
-      : PageElement(xPos, yPos), imageBlock(std::move(block)) {}
+  PageImage(std::unique_ptr<ImageBlock> block, const int16_t xPos, const int16_t yPos, const bool inlineImage = false)
+      : PageElement(xPos, yPos), imageBlock(std::move(block)), inlineImage(inlineImage) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset, bool foregroundBlack = true) override;
   void renderPlaceholder(GfxRenderer& renderer, int xOffset, int yOffset, bool foregroundBlack) const;
   bool serialize(FsFile& file) override;
   PageElementTag getTag() const override { return TAG_PageImage; }
   static std::unique_ptr<PageImage> deserialize(FsFile& file);
   const ImageBlock& getImageBlock() const { return *imageBlock; }
+  bool isInlineImage() const { return inlineImage; }
 };
 
 class PageHorizontalRule final : public PageElement {
@@ -205,7 +207,7 @@ class Page {
   // Return the fixed-point page units protected by images on this page. Text
   // pages return zero; image-only pages are one full page (256 units), while
   // mixed pages contribute their visible image-height fraction.
-  uint16_t imageEstimateUnits(uint16_t viewportHeight) const;
+  uint16_t imageEstimateUnits(uint16_t viewportWidth, uint16_t viewportHeight) const;
 
   // Check if page contains any images (used to force full refresh)
   bool hasImages() const {

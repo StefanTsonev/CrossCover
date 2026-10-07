@@ -173,7 +173,7 @@ typedef struct {
 EPD_PACKED_END
 
 /// Data stored for FONT AS A WHOLE
-typedef struct {
+typedef struct EpdFontData {
   const uint8_t* bitmap;                ///< Glyph bitmaps, concatenated
   const EpdGlyph* glyph;                ///< Glyph array
   const EpdUnicodeInterval* intervals;  ///< Valid unicode intervals for this font
@@ -226,6 +226,19 @@ typedef struct {
   /// answer from RAM-resident data without storage I/O.  Shares glyphMissCtx.
   /// nullptr for fonts whose interval table is already complete (built-ins).
   bool (*coverageHandler)(void* ctx, uint32_t codepoint);
+#if CROSSINK_SCALABLE_FONTS
+  // Optional scalable backend. Metrics never rasterize; bitmap is consumed
+  // before the next bitmap request. These are null for legacy bitmap fonts.
+  const EpdGlyph* (*dynamicGlyphHandler)(void*, uint32_t) = nullptr;
+  const uint8_t* (*bitmapHandler)(void*, const EpdGlyph*) = nullptr;
+  int8_t (*kerningHandler)(void*, uint32_t, uint32_t) = nullptr;
+  uint32_t (*ligatureHandler)(void*, uint32_t, uint32_t) = nullptr;
+#endif
+#if CROSSINK_SCALABLE_FONTS
+  // Non-owning identity shared by all sizes of one scalable face.
+  const void* sizeFamily = nullptr;
+  uint8_t pointSize = 0;
+#endif
 } EpdFontData;
 
 namespace syntheticGlyph {

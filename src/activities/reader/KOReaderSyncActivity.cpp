@@ -34,50 +34,115 @@
 #include "network/WifiUtils.h"
 
 namespace {
-constexpr int RESULT_LOCAL_PAGE_Y_OFFSET = 200;
-constexpr int RESULT_ACTION_MARGIN_TOP = 20;
-constexpr int RESULT_ACTION_HEIGHT = 48;
-constexpr int RESULT_ACTION_GAP = 10;
-constexpr int RESULT_NON_TOUCH_ACTION_MARGIN_TOP = 8;
 constexpr int RESULT_NON_TOUCH_ACTION_HEIGHT = 40;
 constexpr int RESULT_NON_TOUCH_ACTION_GAP = 8;
+constexpr int RESULT_CARD_PADDING = 12;
+constexpr int RESULT_CARD_ROW_GAP = 6;
+constexpr int RESULT_CARD_BAR_HEIGHT = 10;
+constexpr int RESULT_BADGE_PADDING_X = 6;
 
-struct ResultActionLayout {
-  Rect buttons[2];
-  int rowStep;
-  int rowHeight;
-  TouchActionButtons::Layout touchLayout;
+// Progress in tenths of a percent, matching the card's "%.1f%%" label so the "Ahead" badge never
+// disagrees with the numbers shown on screen.
+long displayedTenths(const float percentage) { return std::lround(percentage * 1000.0f); }
+
+// Apply/Upload buttons are pinned above the button hints (or the bottom edge on touch devices) so the
+// progress cards can use the space above them. Rendering and hit testing share this layout.
+TouchActionButtons::Layout resultActionLayout(const Rect& screen, const ThemeMetrics& metrics, const bool hasTouch) {
+  constexpr uint8_t buttonCount = 2;
+  const int buttonHeight = hasTouch ? TouchActionButtons::kDefaultHeight : RESULT_NON_TOUCH_ACTION_HEIGHT;
+  const int buttonGap = hasTouch ? TouchActionButtons::kDefaultGap : RESULT_NON_TOUCH_ACTION_GAP;
+  const int reservedBottom = hasTouch ? metrics.verticalSpacing : metrics.buttonHintsHeight + metrics.verticalSpacing;
+  const int totalHeight = buttonHeight * buttonCount + buttonGap * (buttonCount - 1);
+  const Rect container{screen.x + metrics.contentSidePadding, screen.y + screen.height - reservedBottom - totalHeight,
+                       std::max(1, screen.width - metrics.contentSidePadding * 2), totalHeight};
+  return TouchActionButtons::vertical(container, buttonCount, buttonHeight, buttonGap);
+}
+
+struct ProgressCard {
+  const char* title;
+  const char* source;  // Optional, e.g. the remote device name.
+  const char* pageText;
+  const char* chapter;
+  float percentage;  // 0.0 - 1.0
+  bool ahead;
 };
 
-ResultActionLayout resultActionLayout(const Rect& screen, const ThemeMetrics& metrics, const int contentTop,
-                                      const int lineHeight, const bool hasTouch) {
-  const int buttonX = screen.x + metrics.contentSidePadding;
-  const int buttonWidth = std::max(1, screen.width - metrics.contentSidePadding * 2);
-  const int buttonHeight = hasTouch ? RESULT_ACTION_HEIGHT : RESULT_NON_TOUCH_ACTION_HEIGHT;
-  const int buttonGap = hasTouch ? RESULT_ACTION_GAP : RESULT_NON_TOUCH_ACTION_GAP;
-  const int marginTop = hasTouch ? RESULT_ACTION_MARGIN_TOP : RESULT_NON_TOUCH_ACTION_MARGIN_TOP;
-  const int desiredButtonY = contentTop + RESULT_LOCAL_PAGE_Y_OFFSET + lineHeight + marginTop;
-  const int reservedBottom = hasTouch ? metrics.verticalSpacing : metrics.buttonHintsHeight + metrics.verticalSpacing;
-  const int latestButtonY = screen.y + screen.height - reservedBottom - buttonHeight * 2 - buttonGap;
-  const int firstButtonY = std::min(desiredButtonY, latestButtonY);
-  ResultActionLayout result{{Rect{buttonX, firstButtonY, buttonWidth, buttonHeight},
-                             Rect{buttonX, firstButtonY + buttonHeight + buttonGap, buttonWidth, buttonHeight}},
-                            buttonHeight + buttonGap,
-                            buttonHeight,
-                            {}};
-  if (hasTouch) {
-    constexpr int touchHeight = TouchActionButtons::kDefaultHeight;
-    constexpr int touchGap = TouchActionButtons::kDefaultGap;
-    const int touchTotal = touchHeight * 2 + touchGap;
-    const Rect touchContainer{buttonX, std::min(firstButtonY, screen.y + screen.height - reservedBottom - touchTotal),
-                              buttonWidth, touchTotal};
-    result.touchLayout = TouchActionButtons::vertical(touchContainer, 2);
-    result.buttons[0] = result.touchLayout.buttons[0];
-    result.buttons[1] = result.touchLayout.buttons[1];
-    result.rowStep = touchHeight + touchGap;
-    result.rowHeight = touchHeight;
+int progressCardHeight(const GfxRenderer& renderer) {
+  return RESULT_CARD_PADDING * 2 + renderer.getLineHeight(UI_10_FONT_ID) + RESULT_CARD_ROW_GAP +
+         renderer.getLineHeight(UI_12_FONT_ID) + RESULT_CARD_ROW_GAP + RESULT_CARD_BAR_HEIGHT + RESULT_CARD_ROW_GAP +
+         renderer.getLineHeight(UI_10_FONT_ID);
+}
+
+// Draws text so its baseline lines up with a larger font drawn at rowY.
+void drawTextOnBaseline(const GfxRenderer& renderer, const int fontId, const int x, const int rowY, const int rowFontId,
+                        const char* text, const bool black = true,
+                        const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
+  const int y = rowY + renderer.getFontAscenderSize(rowFontId) - renderer.getFontAscenderSize(fontId);
+  renderer.drawText(fontId, x, y, text, black, style);
+}
+
+// Card layout:
+//   Title  source                  [Ahead]
+//   42.5%                        Page 3/12
+//   [=========                          ]
+//   Chapter name...
+void drawProgressCard(const GfxRenderer& renderer, const Rect& card, const ProgressCard& info) {
+  renderer.drawRect(card.x, card.y, card.width, card.height, true);
+
+  const int x = card.x + RESULT_CARD_PADDING;
+  const int innerWidth = std::max(1, card.width - RESULT_CARD_PADDING * 2);
+  const int right = x + innerWidth;
+  const int smallGap = RESULT_CARD_ROW_GAP * 2;
+  int y = card.y + RESULT_CARD_PADDING;
+
+  // Row 1: title, optional source, optional "Ahead" badge.
+  const int titleLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  int titleRight = right;
+  if (info.ahead) {
+    const char* badge = tr(STR_SYNC_AHEAD);
+    const int badgeWidth = renderer.getTextWidth(SMALL_FONT_ID, badge) + RESULT_BADGE_PADDING_X * 2;
+    const int badgeX = right - badgeWidth;
+    renderer.fillRect(badgeX, y, badgeWidth, titleLineHeight, true);
+    const int badgeTextY = y + (titleLineHeight - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+    renderer.drawText(SMALL_FONT_ID, badgeX + RESULT_BADGE_PADDING_X, badgeTextY, badge, false);
+    titleRight = badgeX - smallGap;
   }
-  return result;
+  const std::string title =
+      renderer.truncatedText(UI_10_FONT_ID, info.title, std::max(1, titleRight - x), EpdFontFamily::BOLD);
+  renderer.drawText(UI_10_FONT_ID, x, y, title.c_str(), true, EpdFontFamily::BOLD);
+  if (info.source != nullptr && info.source[0] != '\0') {
+    const int sourceX = x + renderer.getTextWidth(UI_10_FONT_ID, title.c_str(), EpdFontFamily::BOLD) + smallGap;
+    if (titleRight - sourceX > 0) {
+      const std::string source = renderer.truncatedText(SMALL_FONT_ID, info.source, titleRight - sourceX);
+      drawTextOnBaseline(renderer, SMALL_FONT_ID, sourceX, y, UI_10_FONT_ID, source.c_str());
+    }
+  }
+  y += titleLineHeight + RESULT_CARD_ROW_GAP;
+
+  // Row 2: large percentage with the page position right-aligned on the same baseline.
+  char percentStr[16];
+  snprintf(percentStr, sizeof(percentStr), "%.1f%%", info.percentage * 100);
+  renderer.drawText(UI_12_FONT_ID, x, y, percentStr, true, EpdFontFamily::BOLD);
+  const int percentRight = x + renderer.getTextWidth(UI_12_FONT_ID, percentStr, EpdFontFamily::BOLD) + smallGap;
+  if (right - percentRight > 0) {
+    const std::string page = renderer.truncatedText(UI_10_FONT_ID, info.pageText, right - percentRight);
+    const int pageX = right - renderer.getTextWidth(UI_10_FONT_ID, page.c_str());
+    drawTextOnBaseline(renderer, UI_10_FONT_ID, pageX, y, UI_12_FONT_ID, page.c_str());
+  }
+  y += renderer.getLineHeight(UI_12_FONT_ID) + RESULT_CARD_ROW_GAP;
+
+  // Row 3: progress bar.
+  renderer.drawRect(x, y, innerWidth, RESULT_CARD_BAR_HEIGHT, true);
+  const float clamped = std::min(1.0f, std::max(0.0f, info.percentage));
+  const int fillWidth = static_cast<int>((innerWidth - 4) * clamped);
+  if (fillWidth > 0) {
+    renderer.fillRect(x + 2, y + 2, fillWidth, RESULT_CARD_BAR_HEIGHT - 4, true);
+  }
+  y += RESULT_CARD_BAR_HEIGHT + RESULT_CARD_ROW_GAP;
+
+  // Row 4: chapter name.
+  const std::string chapter = renderer.truncatedText(UI_10_FONT_ID, info.chapter, innerWidth);
+  renderer.drawText(UI_10_FONT_ID, x, y, chapter.c_str());
 }
 
 TouchActionButtons::Layout noRemoteProgressActionLayout(const Rect& screen, const ThemeMetrics& metrics) {
@@ -687,9 +752,10 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == SHOWING_RESULT) {
-    // Show comparison
+    const bool hasTouch = mappedInput.hasTouchHardware();
     top = screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_PROGRESS_FOUND), true, EpdFontFamily::BOLD);
+    top += renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
 
     // Remote chapter name requires Epub (loaded lazily in performSync before this state).
     const int remoteTocIndex = epub->getTocIndexForSpineIndex(remotePosition.spineIndex);
@@ -701,52 +767,37 @@ void KOReaderSyncActivity::render(RenderLock&&) {
         !localChapterName.empty() ? localChapterName
                                   : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex + 1));
 
-    // Remote progress - chapter and page
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_REMOTE_LABEL), true);
-    char remoteChapterStr[128];
-    snprintf(remoteChapterStr, sizeof(remoteChapterStr), "  %s", remoteChapter.c_str());
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 65, remoteChapterStr);
-    char remotePageStr[64];
-    snprintf(remotePageStr, sizeof(remotePageStr), tr(STR_PAGE_OVERALL_FORMAT), remotePosition.pageNumber + 1,
-             remoteProgress.percentage * 100);
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 90, remotePageStr);
+    char remotePageStr[48];
+    snprintf(remotePageStr, sizeof(remotePageStr), tr(STR_SYNC_PAGE_FORMAT), remotePosition.pageNumber + 1);
+    char localPageStr[48];
+    snprintf(localPageStr, sizeof(localPageStr), tr(STR_SYNC_PAGE_TOTAL_FORMAT), currentPage + 1, totalPagesInSpine);
 
-    if (!remoteProgress.device.empty()) {
-      char deviceStr[64];
-      snprintf(deviceStr, sizeof(deviceStr), tr(STR_DEVICE_FROM_FORMAT), remoteProgress.device.c_str());
-      renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 115, deviceStr);
-    }
+    const long remoteTenths = displayedTenths(remoteProgress.percentage);
+    const long localTenths = displayedTenths(localProgress.percentage);
+    const ProgressCard cards[] = {
+        {tr(STR_SYNC_REMOTE_TITLE), remoteProgress.device.c_str(), remotePageStr, remoteChapter.c_str(),
+         remoteProgress.percentage, remoteTenths > localTenths},
+        {tr(STR_SYNC_LOCAL_TITLE), nullptr, localPageStr, localChapter.c_str(), localProgress.percentage,
+         localTenths > remoteTenths},
+    };
 
-    // Local progress - chapter and page
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 150, tr(STR_LOCAL_LABEL), true);
-    char localChapterStr[128];
-    snprintf(localChapterStr, sizeof(localChapterStr), "  %s", localChapter.c_str());
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 175, localChapterStr);
-    char localPageStr[64];
-    snprintf(localPageStr, sizeof(localPageStr), tr(STR_PAGE_TOTAL_OVERALL_FORMAT), currentPage + 1, totalPagesInSpine,
-             localProgress.percentage * 100);
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + RESULT_LOCAL_PAGE_Y_OFFSET,
-                      localPageStr);
-
-    const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-    const auto actions = resultActionLayout(screen, metrics, top, lineHeight, mappedInput.hasTouchHardware());
-    const char* actionLabels[] = {tr(STR_APPLY_REMOTE), tr(STR_UPLOAD_LOCAL)};
-    if (mappedInput.hasTouchHardware()) {
-      TouchActionButtons::draw(renderer, actions.touchLayout, actionLabels, selectedOption, selectedOption,
-                               UI_10_FONT_ID);
+    // Stack the cards in portrait; place them side by side in landscape where height is scarce.
+    const int contentX = screen.x + metrics.contentSidePadding;
+    const int contentWidth = std::max(1, screen.width - metrics.contentSidePadding * 2);
+    const int cardHeight = progressCardHeight(renderer);
+    const int cardGap = metrics.verticalSpacing;
+    if (screen.width > screen.height) {
+      const int cardWidth = std::max(1, (contentWidth - cardGap) / 2);
+      drawProgressCard(renderer, Rect{contentX, top, cardWidth, cardHeight}, cards[0]);
+      drawProgressCard(renderer, Rect{contentX + contentWidth - cardWidth, top, cardWidth, cardHeight}, cards[1]);
     } else {
-      for (int option = 0; option < 2; ++option) {
-        const Rect& button = actions.buttons[option];
-        const bool selected = selectedOption == option;
-        if (selected) {
-          renderer.fillRect(button.x, button.y, button.width, button.height);
-        }
-        renderer.drawRect(button.x, button.y, button.width, button.height, true);
-        const int textX = button.x + (button.width - renderer.getTextWidth(UI_10_FONT_ID, actionLabels[option])) / 2;
-        const int textY = button.y + (button.height - lineHeight) / 2;
-        renderer.drawText(UI_10_FONT_ID, textX, textY, actionLabels[option], !selected);
-      }
+      drawProgressCard(renderer, Rect{contentX, top, contentWidth, cardHeight}, cards[0]);
+      drawProgressCard(renderer, Rect{contentX, top + cardHeight + cardGap, contentWidth, cardHeight}, cards[1]);
     }
+
+    const auto actions = resultActionLayout(screen, metrics, hasTouch);
+    const char* actionLabels[] = {tr(STR_APPLY_REMOTE), tr(STR_UPLOAD_LOCAL)};
+    TouchActionButtons::draw(renderer, actions, actionLabels, selectedOption, selectedOption, UI_10_FONT_ID);
 
     // Bottom button hints
     const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP),
@@ -834,16 +885,11 @@ void KOReaderSyncActivity::loop() {
     };
 
     {
-      const auto& metrics = UITheme::getInstance().getMetrics();
-      const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-      const int top =
-          screen.y + metrics.topPadding + TouchHeaderBackButton::height(metrics, mappedInput) + metrics.verticalSpacing;
-      const auto actions = resultActionLayout(screen, metrics, top, renderer.getLineHeight(UI_10_FONT_ID),
-                                              mappedInput.hasTouchHardware());
+      const auto actions = resultActionLayout(screen, metrics, mappedInput.hasTouchHardware());
+      const Rect& first = actions.buttons[0];
       int touchedOption = -1;
-      const auto touch =
-          mappedInput.rowTouch(touchedOption, actions.buttons[0].y, actions.rowStep, 2, actions.buttons[0].x,
-                               actions.buttons[0].x + actions.buttons[0].width, actions.rowHeight);
+      const auto touch = mappedInput.rowTouch(touchedOption, first.y, actions.buttons[1].y - first.y, actions.count,
+                                              first.x, first.x + first.width, first.height);
       if (touch == MappedInputManager::RowTouch::Down) {
         if (selectedOption != touchedOption) {
           selectedOption = touchedOption;

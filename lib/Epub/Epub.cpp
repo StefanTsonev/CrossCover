@@ -488,8 +488,7 @@ class ContentsDocumentScanner final : public Print {
 }  // namespace
 
 Epub::Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
-  cachePath = cachePathForFilePath(this->filepath, cacheDir);
-  migrateLegacyCachePath(cacheDir);
+  cachePath = resolveCachePathForFilePath(this->filepath, cacheDir);
 }
 
 std::string Epub::cachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
@@ -501,14 +500,15 @@ bool Epub::hasCache(const std::string& filepath, const std::string& cacheDir) {
   return BookMetadataCache::exists(cachePathForFilePath(filepath, cacheDir));
 }
 
-void Epub::migrateLegacyCachePath(const std::string& cacheDir) const {
+std::string Epub::resolveCachePathForFilePath(const std::string& filepath, const std::string& cacheDir) {
+  const std::string cachePath = cachePathForFilePath(filepath, cacheDir);
   if (Storage.exists(cachePath.c_str())) {
-    return;
+    return cachePath;
   }
 
   const std::string legacyCachePath = legacyCachePathForFilePath(filepath, cacheDir);
   if (legacyCachePath == cachePath || !Storage.exists(legacyCachePath.c_str())) {
-    return;
+    return cachePath;
   }
 
   if (Storage.rename(legacyCachePath.c_str(), cachePath.c_str())) {
@@ -516,6 +516,7 @@ void Epub::migrateLegacyCachePath(const std::string& cacheDir) const {
   } else {
     LOG_ERR("EBP", "Failed to migrate legacy EPUB cache: %s -> %s", legacyCachePath.c_str(), cachePath.c_str());
   }
+  return cachePath;
 }
 
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
@@ -551,7 +552,7 @@ bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
 }
 
 bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const bool writeSpineEntries,
-                           const bool collectCssFiles) {
+                           const bool collectCssFiles, const bool metadataOnly, std::string* seriesIndex) {
   std::string contentOpfFilePath;
   if (!findContentOpfFile(&contentOpfFilePath)) {
     LOG_ERR("EBP", "Could not find content.opf in zip");
@@ -567,7 +568,7 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
   }
 
   ContentOpfParser opfParser(getCachePath(), getBasePath(), contentOpfSize,
-                             writeSpineEntries ? bookMetadataCache.get() : nullptr, collectCssFiles);
+                             writeSpineEntries ? bookMetadataCache.get() : nullptr, collectCssFiles, metadataOnly);
   if (!opfParser.setup()) {
     LOG_ERR("EBP", "Could not setup content.opf parser");
     if (opfParser.failedForLowMemory()) {
@@ -576,7 +577,11 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
     return false;
   }
 
-  if (!readItemContentsToStream(contentOpfFilePath, opfParser, 1024)) {
+  // metadataOnly's allowEarlyStop lets the stream stop decompressing once the
+  // parser has left </metadata>, well before the manifest/spine/guide of a
+  // large content.opf; readItemContentsToStream() reports that as a short
+  // write rather than a full success, so it is not itself a read failure here.
+  if (!readItemContentsToStream(contentOpfFilePath, opfParser, 1024, metadataOnly)) {
     LOG_ERR("EBP", "Could not read content.opf");
     if (opfParser.failedForLowMemory()) {
       lastLoadFailure = OpenFailure::OutOfMemory;
@@ -589,6 +594,17 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
   bookMetadata.title = utf8ComposeNfc(opfParser.title);
   bookMetadata.author = opfParser.author;
   bookMetadata.language = opfParser.language;
+  bookMetadata.series = utf8ComposeNfc(opfParser.series);
+  if (seriesIndex) *seriesIndex = std::move(opfParser.seriesIndex);
+  bookMetadata.subject = utf8ComposeNfc(opfParser.subject);
+
+  if (metadataOnly) {
+    // Nothing below is populated: the parser stopped at </metadata>, before
+    // the manifest that would carry the cover item and TOC/guide references.
+    LOG_DBG("EBP", "Successfully parsed package metadata");
+    return true;
+  }
+
   bookMetadata.coverItemHref = opfParser.coverItemHref;
 
   // Guide-based cover fallback: if no cover found via metadata/properties,
@@ -1098,6 +1114,42 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss, const XLoc
   return true;
 }
 
+bool Epub::loadMetadata(std::string& title, std::string& author, const bool allowCachedMetadata, std::string* series,
+                        std::string* genre, std::string* seriesIndex) {
+  title.clear();
+  author.clear();
+  if (series) series->clear();
+  if (genre) genre->clear();
+  if (seriesIndex) seriesIndex->clear();
+
+  // The reader cache holds title and author but not the Library's series and
+  // genre fields. Reuse it for callers that need only title/author; the Library
+  // parses OPF metadata once and then keeps the extra fields in its own index.
+  // This LOCAL reader does not alter the full load()/spine cache lifecycle.
+  if (allowCachedMetadata && !series && !genre && !seriesIndex) {
+    auto metadataCache = makeUniqueNoThrow<BookMetadataCache>(cachePath);
+    if (metadataCache && metadataCache->load()) {
+      title = metadataCache->coreMetadata.title;
+      author = metadataCache->coreMetadata.author;
+      return true;
+    }
+    if (!metadataCache) {
+      LOG_ERR("EBP", "Could not allocate metadata cache reader");
+    }
+  }
+
+  BookMetadataCache::BookMetadata metadata;
+  const bool loaded = parseContentOpf(metadata, /*writeSpineEntries=*/false, /*collectCssFiles=*/false,
+                                      /*metadataOnly=*/true, seriesIndex);
+  if (!loaded) return false;
+
+  title = std::move(metadata.title);
+  author = std::move(metadata.author);
+  if (series) *series = std::move(metadata.series);
+  if (genre) *genre = std::move(metadata.subject);
+  return true;
+}
+
 bool Epub::clearCache() const {
   if (!Storage.exists(cachePath.c_str())) {
     return true;
@@ -1266,6 +1318,27 @@ bool Epub::generateThumbBmp(int width, int height, const GfxRenderer* renderer, 
   return generateThumbBmpInternal(width, height, false, renderer, readerFontId);
 }
 
+bool Epub::generateThumbBmpFromSource(int height, const GfxRenderer* renderer, const int readerFontId) {
+  return generateThumbBmpFromSource(0, height, renderer, readerFontId);
+}
+
+bool Epub::generateThumbBmpFromSource(int width, int height, const GfxRenderer* renderer, const int readerFontId) {
+  normalizeThumbDimensions(width, height);
+  const std::string thumbPath = getThumbBmpPathForDimensions(cachePath, width, height);
+  if (cachedBmpMatchesDimensions(thumbPath, width, height)) return true;
+
+  auto metadata = makeUniqueNoThrow<BookMetadataCache::BookMetadata>();
+  if (!metadata) {
+    LOG_ERR("EBP", "Cannot allocate cover metadata");
+    return false;
+  }
+  setupCacheDir();
+  if (!parseContentOpf(*metadata, /*writeSpineEntries=*/false, /*collectCssFiles=*/false)) {
+    return false;
+  }
+  return generateThumbBmpInternal(width, height, false, renderer, readerFontId, &metadata->coverItemHref);
+}
+
 bool Epub::generateAdaptiveThumbBmp(int width, int height, const GfxRenderer* renderer, const int readerFontId) const {
   return generateThumbBmpInternal(width, height, true, renderer, readerFontId);
 }
@@ -1320,7 +1393,7 @@ bool Epub::ensureCachedCoverImage(const std::string& coverImageHref, std::string
 }
 
 bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveContain, const GfxRenderer* renderer,
-                                    const int readerFontId) const {
+                                    const int readerFontId, const std::string* coverHrefOverride) const {
   if (height <= 0) {
     LOG_DBG("EBP", "Using default thumb BMP height for requested dimensions: %dx%d", width, height);
   }
@@ -1333,12 +1406,12 @@ bool Epub::generateThumbBmpInternal(int width, int height, const bool adaptiveCo
     return true;
   }
 
-  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+  if (!coverHrefOverride && (!bookMetadataCache || !bookMetadataCache->isLoaded())) {
     LOG_ERR("EBP", "Cannot generate thumb BMP, cache not loaded");
     return false;
   }
 
-  const auto coverImageHref = bookMetadataCache->coreMetadata.coverItemHref;
+  const auto& coverImageHref = coverHrefOverride ? *coverHrefOverride : bookMetadataCache->coreMetadata.coverItemHref;
   if (coverImageHref.empty()) {
     LOG_DBG("EBP", "No known cover image for thumbnail");
   } else if (FsHelpers::hasJpgExtension(coverImageHref)) {

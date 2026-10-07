@@ -118,19 +118,15 @@ EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputMana
     return Action::LastPage;
   }
 
-  // Selection movement follows reader page-turn buttons: side buttons honor the
-  // configured side-button layout, while front Left/Right move on release.
-  const bool sideUsePress = SETTINGS.sideButtonLongPress == CrossPointSettings::SIDE_LONG_PRESS::SIDE_LONG_OFF;
-  const auto sideTriggered = [&](const MappedInputManager::Button button) {
-    return sideUsePress ? input.wasPressed(button) : input.wasReleased(button);
-  };
+  // Side-button navigation follows each button's configured short action.
   const int itemCount = static_cast<int>(names.size()) + 1;  // + "Home" entry
-  if (sideTriggered(MappedInputManager::Button::PageBack) || input.wasReleased(MappedInputManager::Button::Left)) {
+  if (input.wasReleased(MappedInputManager::Button::PageBack) || input.wasReleased(MappedInputManager::Button::Left)) {
     selector.store(ButtonNavigator::previousIndex(selectedIndex, itemCount),
                    std::memory_order_relaxed);  // wraps to the bottom
     return Action::Redraw;
   }
-  if (sideTriggered(MappedInputManager::Button::PageForward) || input.wasReleased(MappedInputManager::Button::Right)) {
+  if (input.wasReleased(MappedInputManager::Button::PageForward) ||
+      input.wasReleased(MappedInputManager::Button::Right)) {
     selector.store(ButtonNavigator::nextIndex(selectedIndex, itemCount),
                    std::memory_order_relaxed);  // wraps to the top
     return Action::Redraw;

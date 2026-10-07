@@ -140,9 +140,22 @@ BmpReaderError Bitmap::parseHeaders() {
 
   for (int i = 0; i < 256; i++) paletteLum[i] = static_cast<uint8_t>(i);
   if (colorsUsed > 0) {
+    const uint64_t paletteEnd = 14ULL + biSize + 4ULL * colorsUsed;
+    if (paletteEnd > bfOffBits) {
+      LOG_ERR("BMP", "Palette overlaps pixel data");
+      return BmpReaderError::FileInvalid;
+    }
+    // The palette follows the full DIB header. V4/V5 headers (108/124 bytes, as
+    // written by GIMP and ImageMagick) are longer than the 40 bytes parsed above.
+    if (!file.seek(14 + biSize)) {
+      return BmpReaderError::SeekPixelDataFailed;
+    }
     for (uint32_t i = 0; i < colorsUsed; i++) {
       uint8_t rgb[4];
-      file.read(rgb, 4);  // Read B, G, R, Reserved in one go
+      if (file.read(rgb, 4) != 4) {  // Read B, G, R, Reserved in one go
+        LOG_ERR("BMP", "Incomplete palette entry %u", static_cast<unsigned>(i));
+        return BmpReaderError::FileInvalid;
+      }
       paletteLum[i] = (77u * rgb[2] + 150u * rgb[1] + 29u * rgb[0]) >> 8;
     }
   }

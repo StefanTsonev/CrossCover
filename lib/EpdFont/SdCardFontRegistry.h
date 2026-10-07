@@ -25,6 +25,8 @@ struct SdCardFontFamilyInfo {
   // Rebuild-only source marker. It is not serialized and is irrelevant after
   // the index has been loaded.
   bool sourceVisibleRoot = false;
+  bool indexedScalable = false;
+  bool isScalable() const { return indexedScalable || (!files.empty() && files.front().pointSize == 0); }
   std::string name;  // directory name, e.g. "NotoSansCJK"
   mutable std::vector<SdCardFontFileInfo> files;
 

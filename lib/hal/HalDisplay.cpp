@@ -3,6 +3,17 @@
 
 #include "HalSpiBus.h"
 
+namespace {
+template <typename Display>
+bool restoreVisibleFrameIfSupported(Display& display) {
+  if constexpr (requires { display.restoreVisibleFrame(); }) {
+    return display.restoreVisibleFrame();
+  }
+  // Older SDK revisions rely on the normal wake refresh instead.
+  return false;
+}
+}  // namespace
+
 // Global HalDisplay instance
 HalDisplay display;
 
@@ -74,6 +85,15 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
 void HalDisplay::setInverted(bool inverted) {
   HalSpiBus::Lock spiLock;
   einkDisplay.setInverted(inverted);
+}
+
+bool HalDisplay::restoreVisibleFrame() {
+#ifdef SIMULATOR
+  return false;
+#else
+  HalSpiBus::Lock spiLock;
+  return restoreVisibleFrameIfSupported(einkDisplay);
+#endif
 }
 
 void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {

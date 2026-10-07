@@ -50,6 +50,9 @@ class LyraCarouselTheme : public LyraTheme {
                            const std::function<bool()>& storeCoverBuffer, const BookReadingStats* stats = nullptr,
                            float progressPercent = -1.0f, const GlobalReadingStats* globalStats = nullptr,
                            const char* currentChapterTitle = nullptr) const override;
+  // Live footer, shared by direct drawing and cached-artwork restoration.
+  void drawReadingProgress(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
+                           const BookReadingStats* stats, float progressPercent) const;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<const char*(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;
@@ -57,10 +60,6 @@ class LyraCarouselTheme : public LyraTheme {
   // Home uses this same geometry to consume swipes that start over the menu.
   static Rect buttonMenuTouchRect(const GfxRenderer& renderer, int buttonCount);
   void registerButtonMenuTouchTargets(const GfxRenderer& renderer, int buttonCount) const;
-  // LyraTheme has no virtual overlay hook; this is a carousel-only helper.
-  void drawButtonMenuSelectionOverlay(const GfxRenderer& renderer, int buttonCount, int selectedIndex,
-                                      const std::function<const char*(int index)>& buttonLabel,
-                                      const std::function<UIIcon(int index)>& rowIcon) const;
   void drawCarouselBorder(GfxRenderer& renderer, Rect coverRect, const std::vector<RecentBook>& recentBooks,
                           int centerIdx, bool inCarouselRow) const override;
   void drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,

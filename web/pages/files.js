@@ -90,6 +90,19 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)).toLocaleString() + " " + sizes[i];
 }
 
+// Maps each modal overlay id to its Escape/Cancel-button close function.
+// Click-outside uses closeUploadModal (a no-op mid-upload) to avoid
+// accidentally aborting an in-progress upload from a stray outside click.
+const MODAL_CANCEL_FNS = {
+  uploadModal: handleCancelUploadModal,
+  folderModal: closeFolderModal,
+  deleteModal: closeDeleteModal,
+  renameModal: closeRenameModal,
+  moveModal: closeMoveModal,
+  imagePreviewModal: closeImagePreview,
+};
+const MODAL_OUTSIDE_CLICK_FNS = { ...MODAL_CANCEL_FNS, uploadModal: closeUploadModal };
+
 async function hydrate() {
   // Fetch CrossInk version
   fetchVersion();
@@ -98,16 +111,37 @@ async function hydrate() {
   document.querySelectorAll(".modal-overlay").forEach(function (overlay) {
     overlay.addEventListener("click", function (e) {
       if (e.target === overlay) {
-        // Call the appropriate close function for each modal to ensure cleanup
-        if (overlay.id === "uploadModal") return closeUploadModal();
-        if (overlay.id === "folderModal") return closeFolderModal();
-        if (overlay.id === "deleteModal") return closeDeleteModal();
-        if (overlay.id === "renameModal") return closeRenameModal();
-        if (overlay.id === "moveModal") return closeMoveModal();
-        if (overlay.id === "imagePreviewModal") return closeImagePreview();
+        const closeFn = MODAL_OUTSIDE_CLICK_FNS[overlay.id];
+        if (closeFn) return closeFn();
         overlay.classList.remove("open");
       }
     });
+  });
+
+  // Escape cancels whichever modal is currently open
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || e.repeat || e.isComposing) return;
+    const openOverlay = document.querySelector(".modal-overlay.open");
+    if (!openOverlay) return;
+    const closeFn = MODAL_CANCEL_FNS[openOverlay.id];
+    if (closeFn) {
+      e.preventDefault();
+      closeFn();
+    }
+  });
+
+  // Enter confirms the rename/move text inputs
+  document.getElementById("renameNewName").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.repeat && !e.isComposing) {
+      e.preventDefault();
+      confirmRename();
+    }
+  });
+  document.getElementById("moveDestPath").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.repeat && !e.isComposing) {
+      e.preventDefault();
+      confirmMove();
+    }
   });
 
   const breadcrumbs = document.getElementById("directory-breadcrumbs");
@@ -158,6 +192,58 @@ async function hydrate() {
   document.getElementById("folder-summary").innerHTML =
     `${folderCount} ${folderLabel}, ${fileCount} ${fileLabel}, ${formatFileSize(totalSize)}`;
 
+  listedFiles = files;
+  renderFileTable();
+}
+
+// Column sort; null key keeps the default folders, EPUBs, then name order
+let listedFiles = [];
+let fileSort = { key: null, dir: 1 };
+try {
+  const saved = JSON.parse(sessionStorage.getItem("fileSort"));
+  if (saved && ["name", "size"].includes(saved.key) && [1, -1].includes(saved.dir)) fileSort = saved;
+} catch (e) {}
+
+function compareFiles(a, b) {
+  // Folders always first; size sorting keeps their names alphabetical
+  if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+  const key = fileSort.key;
+  if (a.isDirectory && key !== "name") return a.name.localeCompare(b.name);
+  if (!key) {
+    if (a.isEpub !== b.isEpub) return a.isEpub ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  }
+  const diff = key === "name" ? a.name.localeCompare(b.name) : (a[key] || 0) - (b[key] || 0);
+  return (diff || a.name.localeCompare(b.name)) * fileSort.dir;
+}
+
+function sortHeader(key, label) {
+  const arrow = fileSort.key === key ? (fileSort.dir > 0 ? " ▲" : " ▼") : "";
+  const order = fileSort.key === key ? (fileSort.dir > 0 ? "ascending" : "descending") : "none";
+  return `<th aria-sort="${order}"><button class="sort-button" data-sort="${key}">${label}${arrow}</button></th>`;
+}
+
+function setFileSort(key) {
+  if (!["name", "size"].includes(key)) return;
+  const selected = new Set([...document.querySelectorAll(".select-item:checked")].map((cb) => cb.dataset.path));
+  fileSort = { key, dir: fileSort.key === key ? -fileSort.dir : 1 };
+  try {
+    sessionStorage.setItem("fileSort", JSON.stringify(fileSort));
+  } catch (e) {}
+  renderFileTable();
+  const checkboxes = [...document.querySelectorAll(".select-item")];
+  checkboxes.forEach((cb) => (cb.checked = selected.has(cb.dataset.path)));
+  const master = document.getElementById("selectAllCheckbox");
+  if (master) {
+    master.checked = checkboxes.length > 0 && checkboxes.every((cb) => cb.checked);
+    master.indeterminate = !master.checked && checkboxes.some((cb) => cb.checked);
+  }
+  document.querySelector(`[data-sort="${key}"]`)?.focus();
+}
+
+function renderFileTable() {
+  const files = listedFiles;
+  const fileTable = document.getElementById("file-table");
   if (files.length === 0) {
     fileTable.innerHTML = '<div class="no-files">This folder is empty</div>';
   } else {
@@ -165,16 +251,9 @@ async function hydrate() {
 
     // Add select-all checkbox column
     fileTableContent +=
-      '<tr><th style="width:40px"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)"></th><th>Name</th><th>Type</th><th>Size</th><th class="actions-col">Actions</th></tr>';
+      `<tr><th style="width:40px"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)"></th>${sortHeader("name", "Name")}<th>Type</th>${sortHeader("size", "Size")}<th class="actions-col">Actions</th></tr>`;
 
-    const sortedFiles = files.sort((a, b) => {
-      // Directories first, then epub files, then other files, alphabetically within each group
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      if (a.isEpub && !b.isEpub) return -1;
-      if (!a.isEpub && b.isEpub) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    const sortedFiles = files.slice().sort(compareFiles);
 
     sortedFiles.forEach((file) => {
       if (file.isDirectory) {
@@ -221,6 +300,9 @@ async function hydrate() {
 
     fileTableContent += "</table>";
     fileTable.innerHTML = fileTableContent;
+    fileTable.querySelectorAll("[data-sort]").forEach((button) => {
+      button.addEventListener("click", () => setFileSort(button.dataset.sort));
+    });
     fileTable.querySelectorAll(".file-action-btn").forEach((button) => {
       button.addEventListener("click", handleFileActionClick);
     });
@@ -235,18 +317,56 @@ function downloadUrl(filePath) {
   return `/download?path=${encodeURIComponent(filePath)}`;
 }
 
-function openImagePreview(url, name) {
+function openImagePreview(link) {
+  const url = link.getAttribute("href");
+  const name = link.textContent;
+  const links = previewLinks();
+  const row = link.closest("tr");
+  const info = [`${links.indexOf(link) + 1} / ${links.length}`, row.cells[3].textContent];
+  const meta = document.getElementById("imagePreviewMeta");
+  meta.textContent = info.join(" · ");
   const img = document.getElementById("imagePreviewImg");
   document.getElementById("imagePreviewName").textContent = name;
+  // Browsers keep showing the previous image until the new one arrives
+  img.style.opacity = 0;
+  img.onload = img.onerror = (e) => {
+    img.style.opacity = "";
+    if (e.type !== "load") return;
+    info.splice(1, 0, `${img.naturalWidth} × ${img.naturalHeight}`);
+    meta.textContent = info.join(" · ");
+  };
   img.src = url;
   img.alt = name;
   document.getElementById("imagePreviewDownload").href = url;
+  document.getElementById("imagePreviewNav").classList.toggle("single", links.length < 2);
   document.getElementById("imagePreviewModal").classList.add("open");
+}
+
+// Image navigation is independent of the file-dialog shortcuts.
+document.addEventListener("keydown", (e) => {
+  if (e.repeat || e.isComposing || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+  if (!document.getElementById("imagePreviewModal").classList.contains("open")) return;
+  e.preventDefault();
+  stepImagePreview(e.key === "ArrowLeft" ? -1 : 1);
+});
+
+// Only image rows get .image-preview-link (isImageFile); wraps at the ends.
+function previewLinks() {
+  return [...document.querySelectorAll("#file-table .image-preview-link")];
+}
+
+function stepImagePreview(dir) {
+  const links = previewLinks();
+  const current = document.getElementById("imagePreviewDownload").getAttribute("href");
+  const i = links.findIndex((l) => l.getAttribute("href") === current);
+  if (i >= 0 && links.length > 1) openImagePreview(links[(i + dir + links.length) % links.length]);
 }
 
 function closeImagePreview() {
   document.getElementById("imagePreviewModal").classList.remove("open");
-  document.getElementById("imagePreviewImg").src = "";
+  const img = document.getElementById("imagePreviewImg");
+  img.onload = img.onerror = null;
+  img.removeAttribute("src");
 }
 
 function handleFileActionClick(event) {
@@ -1087,7 +1207,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const link = event.target.closest(".image-preview-link");
     if (!link) return;
     event.preventDefault();
-    openImagePreview(link.getAttribute("href"), link.textContent);
+    openImagePreview(link);
   });
 
   const qualitySlider = document.getElementById("qualitySlider");
@@ -3688,8 +3808,47 @@ async function findEpubCoverImagePaths(zip) {
     return !properties.includes("cover-image") &&
       (item.getAttribute("media-type") || "").startsWith("image/") && /cover/i.test(`${id} ${href}`);
     });
+  const coverPaths = new Set();
   const href = coverItem?.getAttribute("href");
-  return href ? new Set([resolvePath(opfPath, decodeHref(href.split("#")[0]))]) : new Set();
+  if (href) coverPaths.add(resolvePath(opfPath, decodeHref(href.split("#")[0])));
+
+  const coverPagePaths = new Set(
+    items
+      .filter((item) => {
+        const itemHref = item.getAttribute("href") || "";
+        const id = item.getAttribute("id") || "";
+        const mediaType = item.getAttribute("media-type") || "";
+        const hasCoverToken = /(?:^|[-_])cover(?:[-_]|$)/i.test(id) ||
+          /(?:^|\/)cover(?:[-_][^/]*)?\.(?:x?html?)$/i.test(itemHref);
+        return /(?:xhtml|html)/i.test(mediaType) && hasCoverToken;
+      })
+      .map((item) => resolvePath(opfPath, decodeHref((item.getAttribute("href") || "").split("#")[0]))),
+  );
+  for (const reference of Array.from(doc.getElementsByTagName("reference"))) {
+    if ((reference.getAttribute("type") || "").toLowerCase() === "cover") {
+      const pageHref = reference.getAttribute("href");
+      if (pageHref) coverPagePaths.add(resolvePath(opfPath, decodeHref(pageHref.split("#")[0])));
+    }
+  }
+  if (coverPaths.size > 0) {
+    const firstSpineId = doc.getElementsByTagName("itemref")[0]?.getAttribute("idref");
+    const firstSpineItem = firstSpineId && items.find((item) => item.getAttribute("id") === firstSpineId);
+    const firstSpineHref = firstSpineItem?.getAttribute("href");
+    if (firstSpineHref) {
+      coverPagePaths.add(resolvePath(opfPath, decodeHref(firstSpineHref.split("#")[0])));
+    }
+  }
+  for (const pagePath of coverPagePaths) {
+    const page = zip.files[pagePath];
+    if (!page) continue;
+    const pageDoc = new DOMParser().parseFromString(await safeReadText(page), "application/xhtml+xml");
+    if (pageDoc.getElementsByTagName("parsererror").length) continue;
+    for (const image of Array.from(pageDoc.querySelectorAll("img, image"))) {
+      const imageHref = image.getAttribute("src") || image.getAttribute("href") || image.getAttribute("xlink:href");
+      if (imageHref) coverPaths.add(resolvePath(pagePath, decodeHref(imageHref.split("#")[0])));
+    }
+  }
+  return coverPaths;
 }
 
 // Process single image - returns array of {data, suffix} objects
@@ -5473,7 +5632,12 @@ function openRenameModal(name, path) {
   setTimeout(() => {
     const input = document.getElementById("renameNewName");
     input.focus();
-    input.select();
+    const dotIndex = name.lastIndexOf(".");
+    if (dotIndex > 0) {
+      input.setSelectionRange(0, dotIndex);
+    } else {
+      input.select();
+    }
   }, 50);
 }
 

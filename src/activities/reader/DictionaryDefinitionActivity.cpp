@@ -1169,6 +1169,34 @@ bool DictionaryDefinitionActivity::handleTouchDictionaryLookup() {
 }
 #endif
 
+void DictionaryDefinitionActivity::navigateBack() {
+  if (!cachePath.empty() && !chain_.empty()) {
+    pendingBack_ = chain_.at(chain_.depth() - 1);
+    const auto hist = LookupHistory::load(cachePath);
+    if (pendingBack_.histIndex < hist.size()) {
+      chainBackNavInProgress = true;
+      controller.startLookup(hist[pendingBack_.histIndex].word, false);
+      return;
+    }
+  }
+  DictUtils::cancelAndFinish(*this);
+}
+
+bool DictionaryDefinitionActivity::handleHomeGesture() {
+  if (controller.isActive()) {
+    controller.requestBack();
+    chainBackNavInProgress = false;
+    dictionarySwitchLookupInProgress = false;
+  } else if (isWordSelectMode) {
+    isWordSelectMode = false;
+    navigator.reset();
+    requestUpdate();
+  } else {
+    navigateBack();
+  }
+  return true;
+}
+
 void DictionaryDefinitionActivity::loop() {
   // Own the complete long-press gesture. Returning to the reader while Back is
   // still held would let the reader fire its configured long-press shortcut.
@@ -1219,6 +1247,7 @@ void DictionaryDefinitionActivity::loop() {
           foundLocation = controller.getFoundLocation();
           wrapText();  // resets currentPage to 0 and loads page 0
           if (wasBackNav) {
+            chain_.pop();
             // Re-derive the now-current word's history position and restore its page.
             chain_.setCurrentHistIndex(pendingBack_.histIndex);
             currentPage = (pendingBack_.page < totalPages) ? pendingBack_.page : (totalPages - 1);
@@ -1234,6 +1263,7 @@ void DictionaryDefinitionActivity::loop() {
         break;
       }
       case DictionaryLookupController::LookupEvent::NotFoundDismissedBack:
+        chainBackNavInProgress = false;
         dictionarySwitchLookupInProgress = false;
         requestUpdate();
         break;
@@ -1246,6 +1276,7 @@ void DictionaryDefinitionActivity::loop() {
         openDictionarySwitch();
         break;
       case DictionaryLookupController::LookupEvent::Cancelled:
+        chainBackNavInProgress = false;
         dictionarySwitchLookupInProgress = false;
         isWordSelectMode = false;
         navigator.reset();
@@ -1373,18 +1404,7 @@ void DictionaryDefinitionActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
       (!showLookupButton || mappedInput.getHeldTime() < Dictionary::LONG_PRESS_MS)) {
-    if (!cachePath.empty() && !chain_.empty()) {
-      pendingBack_ = chain_.pop();
-      // Resolve the prior headword from the persisted history by distance-from-newest.
-      const auto hist = LookupHistory::load(cachePath);  // newest-first
-      if (pendingBack_.histIndex < hist.size()) {
-        chainBackNavInProgress = true;
-        controller.startLookup(hist[pendingBack_.histIndex].word, false);
-        return;
-      }
-      // Unresolvable (should not happen under the depth cap) — fall through to exit.
-    }
-    DictUtils::cancelAndFinish(*this);
+    navigateBack();
     return;
   }
 }

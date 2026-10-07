@@ -75,6 +75,9 @@ class CrossPointState : public PersistableStore<CrossPointState> {
 
  private:
   bool loadFromBinaryFile();
+  // Last successfully written snapshot; guarded by storeMutex.
+  mutable uint32_t lastSavedCrc = 0;
+  mutable bool lastSavedCrcValid = false;
 };
 
 // Helper macro to access settings

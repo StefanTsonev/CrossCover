@@ -1,0 +1,3 @@
+add_executable(EdgeSlideTest EdgeSlideTest.cpp)
+target_link_libraries(EdgeSlideTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(EdgeSlideTest)

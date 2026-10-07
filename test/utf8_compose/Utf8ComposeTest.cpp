@@ -36,6 +36,11 @@ TEST_P(Utf8ComposeNfc, PassesThroughAsciiAndNfc) {
   EXPECT_EQ(compose("caf\xC3\xA9"), "caf\xC3\xA9");  // é already U+00E9
 }
 
+TEST(Utf8SafeTruncateBuffer, DropsAnIncompleteLeadingCodepoint) {
+  const std::string incomplete = "\xF0\x9F\x98";
+  EXPECT_EQ(utf8SafeTruncateBuffer(incomplete.data(), static_cast<int>(incomplete.size())), 0);
+}
+
 // Single combining mark composes onto its base letter.
 TEST_P(Utf8ComposeNfc, ComposesSingleMark) {
   EXPECT_EQ(compose("e" + kCombAcute), "\xC3\xA9");  // e + ́  -> é  (U+00E9)

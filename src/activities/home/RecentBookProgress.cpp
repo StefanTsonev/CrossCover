@@ -11,10 +11,12 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "RecentBooksStore.h"
 #include "activities/reader/EpubReaderUtils.h"
+#include "util/FileContentEquals.h"
 
 namespace {
 constexpr uint32_t EPUB_PERCENT_CACHE_MAGIC = 0x45505250;  // "EPRP"
@@ -58,15 +60,22 @@ void saveCachedEpubPercentToCachePath(const std::string& cachePath, const float 
   const float clamped = clampProgressPercent(progress);
   const uint16_t basisPoints = static_cast<uint16_t>((clamped * 100.0f) + 0.5f);
 
+  // Keep the existing packed seven-byte format, without struct padding.
+  uint8_t data[sizeof(EPUB_PERCENT_CACHE_MAGIC) + sizeof(EPUB_PERCENT_CACHE_VERSION) + sizeof(basisPoints)];
+  memcpy(data, &EPUB_PERCENT_CACHE_MAGIC, sizeof(EPUB_PERCENT_CACHE_MAGIC));
+  data[sizeof(EPUB_PERCENT_CACHE_MAGIC)] = EPUB_PERCENT_CACHE_VERSION;
+  memcpy(data + sizeof(EPUB_PERCENT_CACHE_MAGIC) + sizeof(EPUB_PERCENT_CACHE_VERSION), &basisPoints,
+         sizeof(basisPoints));
+  const std::string path = epubPercentCachePath(cachePath);
+  if (fileContentEquals("RBPR", path.c_str(), data, sizeof(data))) return;
+
   FsFile file;
-  if (!Storage.openFileForWrite("RBPR", epubPercentCachePath(cachePath), file)) {
+  if (!Storage.openFileForWrite("RBPR", path, file)) {
     LOG_ERR("RBPR", "failed to open EPUB percent cache for write: %s", cachePath.c_str());
     return;
   }
 
-  const bool writeOk = serialization::tryWritePod(file, EPUB_PERCENT_CACHE_MAGIC) &&
-                       serialization::tryWritePod(file, EPUB_PERCENT_CACHE_VERSION) &&
-                       serialization::tryWritePod(file, basisPoints) && file.sync();
+  const bool writeOk = file.write(data, sizeof(data)) == sizeof(data) && file.sync();
   file.close();
   if (!writeOk) {
     LOG_ERR("RBPR", "failed to write EPUB percent cache: %s", cachePath.c_str());
@@ -237,7 +246,7 @@ float RecentBookProgress::loadCachedEpubPercent(const RecentBook& book) {
   if (!FsHelpers::hasEpubExtension(book.path)) {
     return -1.0f;
   }
-  const std::string cachePath = Epub::cachePathForFilePath(book.path, "/.crosspoint");
+  const std::string cachePath = Epub::resolveCachePathForFilePath(book.path, "/.crosspoint");
   const float cachedProgress = loadCachedEpubPercentFromCachePath(cachePath);
   if (cachedProgress >= 0.0f) {
     return cachedProgress;

@@ -19,8 +19,6 @@ int Epub::getTocItemsCount() const { return 0; }
 int Epub::getTocIndexForSpineIndex(int) const { return -1; }
 bool Epub::readItemContentsToStream(const std::string&, Print&, size_t, bool) const { return false; }
 
-bool CssParser::loadFromCache() { return false; }
-
 void Hyphenator::setPreferredLanguage(const std::string&) {}
 
 ChapterHtmlSlimParser::~ChapterHtmlSlimParser() = default;
@@ -41,4 +39,4 @@ std::unique_ptr<Page> Page::deserialize(FsFile& file) {
   return std::make_unique<Page>();
 }
 
-uint16_t Page::imageEstimateUnits(uint16_t) const { return 0; }
+uint16_t Page::imageEstimateUnits(uint16_t, uint16_t) const { return 0; }

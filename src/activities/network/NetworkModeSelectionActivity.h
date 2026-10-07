@@ -36,6 +36,7 @@ class NetworkModeSelectionActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   int selectedIndex = 0;
+  bool buttonSelectionActive = false;
 
   UiHost ui;
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder

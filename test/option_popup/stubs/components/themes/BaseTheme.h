@@ -22,5 +22,6 @@ struct ThemeMetrics {
   int optionPopupSelectionVPadding = 0;
   int optionPopupTitleGap = 0;
   bool optionPopupOptionFontBold = false;
+  bool optionPopupSelectionLight = false;
   int optionPopupDialogSideMargin = 0;
 };

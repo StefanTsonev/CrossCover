@@ -24,6 +24,7 @@ extern HalPowerManager powerManager;  // Singleton
 class HalPowerManager {
   int normalFreq = 0;  // MHz
   bool isLowPower = false;
+  bool batteryCalibrationPending = false;
 
   mutable int _batteryCachedPercent = 0;  // Last read battery percentage * 10 (0-1000); callers divide by 10 (ADC/X4
                                           // path only — I2C/X3 path stores 0-100 directly)
@@ -43,6 +44,10 @@ class HalPowerManager {
   static constexpr unsigned long BATTERY_POLL_MS = 1500;       // ms
 
   void begin();
+
+  // Main-loop only, with rendering excluded while the gauge is reconfigured.
+  // Returns true while another short calibration step is needed.
+  bool updateBatteryCalibration();
 
   // Control CPU frequency for power saving
   void setPowerSaving(bool enabled);

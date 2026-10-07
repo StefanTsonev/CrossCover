@@ -3,6 +3,7 @@
 #include <expat.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 constexpr size_t MAX_OPDS_FEED_ENTRIES = 50;
@@ -26,6 +27,9 @@ struct OpdsEntry {
   std::string author;  // Only for books
   std::string href;    // Navigation URL or epub download URL
   std::string id;
+  // Item count advertised for a navigation entry (thr:count on its link, or a
+  // "<N> books" summary); -1 when the feed does not say.
+  int32_t count = -1;
 };
 
 // Legacy alias for backward compatibility
@@ -192,6 +196,7 @@ class OpdsParser final : public Print {
   bool inAuthor = false;
   bool inAuthorName = false;
   bool inId = false;
+  bool inSummary = false;
 
   bool errorOccured = false;
   OpdsParserError errorReason = OpdsParserError::NONE;

@@ -78,19 +78,20 @@ bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer) {
 }
 
 void draw(GfxRenderer& renderer, const Rect& header, const char* title, const bool readerContext,
-          const int rightReserve, const char* subtitle, const int verticalOffset) {
+          const int rightReserve, const char* subtitle, const int verticalOffset, const bool showStatus) {
   auto target = makeUiTarget(renderer);
-  draw(renderer, target, header, title, readerContext, rightReserve, subtitle, verticalOffset);
+  draw(renderer, target, header, title, readerContext, rightReserve, subtitle, verticalOffset, showStatus);
 }
 
 void draw(GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rect& header, const char* title,
-          const bool readerContext, const int rightReserve, const char* subtitle, const int verticalOffset) {
+          const bool readerContext, const int rightReserve, const char* subtitle, const int verticalOffset,
+          const bool showStatus) {
   Layout back = layout(header);
   const int offset = effectiveVerticalOffset(back, header, verticalOffset);
   back.iconRect.y += offset;
   // Keep the status row on the same baseline as Home. The optional offset only
   // adds breathing room below it for the navigation icon and title.
-  GUI.drawHeader(renderer, header, "", subtitle, readerContext);
+  GUI.drawHeader(renderer, header, "", subtitle, readerContext, showStatus);
 
   fui::TextStyle titleStyle = uiThemeTokens(target).titleText;
   titleStyle.align = fui::TextAlign::Left;

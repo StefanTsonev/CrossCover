@@ -2,10 +2,13 @@
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
 #include <Epub/converters/ImageDecoderFactory.h>
+#include <Epub/converters/ImageDimsProbe.h>
 #include <Epub/hyphenation/Hyphenator.h>
 #include <Epub/parsers/PreviewBlockLocator.h>
 #include <Epub/tables/CompactTableLayout.h>
 #include <GfxRenderer.h>
+
+#include <algorithm>
 
 std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string&, bool) { return {}; }
 
@@ -19,14 +22,24 @@ bool computeVisualWordOrder(const std::vector<std::string>& words, bool, std::ve
 }
 }  // namespace BidiUtils
 
-TextBlock::TextBlock(const std::vector<std::string>&, const std::vector<int16_t>&,
+TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
                      const std::vector<EpdFontFamily::Style>&, const std::vector<uint8_t>&,
                      const std::vector<uint16_t>&, const std::vector<uint16_t>&, const std::vector<uint8_t>&,
                      const std::vector<bool>&, const BlockStyle& blockStyle, std::vector<std::string> rubyTexts)
-    : blockStyle(blockStyle), rubyTexts(std::move(rubyTexts)) {}
+    : blockStyle(blockStyle), numWords(static_cast<uint16_t>(words.size())), rubyTexts(std::move(rubyTexts)) {
+  if (wordXpos.empty()) return;
+  arena = std::make_unique<uint8_t[]>(wordXpos.size() * sizeof(int16_t));
+  auto* positions = reinterpret_cast<int16_t*>(arena.get());
+  std::copy(wordXpos.begin(), wordXpos.end(), positions);
+  xposArr = positions;
+}
 bool TextBlock::hasRuby() const { return false; }
 
 bool ImageDecoderFactory::isFormatSupported(const std::string& path) { return path.ends_with(".jpg"); }
+ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return nullptr; }
+size_t ImageDimsProbe::write(uint8_t) { return 0; }
+size_t ImageDimsProbe::write(const uint8_t*, size_t) { return 0; }
+bool ImageDimsProbe::getDimensions(ImageDimensions&) const { return false; }
 
 ImageBlock::ImageBlock(std::string imagePath, std::string sourcePath, const int16_t width, const int16_t height)
     : imagePath(std::move(imagePath)), sourcePath(std::move(sourcePath)), width(width), height(height) {}
@@ -37,6 +50,7 @@ bool PageImage::serialize(FsFile&) { return false; }
 
 PreviewBlockLocator::PreviewBlockLocator(const char*, IsBlockTagFn) {}
 PreviewBlockLocator::~PreviewBlockLocator() = default;
+bool PreviewBlockLocator::feed(const char*, int, bool) { return false; }
 
 CompactTableLayout::CompactTableLayout(GfxRenderer& renderer, int, uint16_t, uint16_t, uint16_t, uint8_t,
                                        BlockStyle tableStyle)

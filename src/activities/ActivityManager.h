@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,8 +27,30 @@ struct portMUX_TYPE {};
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
+#if CROSSINK_APP_CAP_TOUCH
+struct LiveLightSwipeState {
+  Activity* owner = nullptr;
+  bool tracking = false;
+  bool active = false;
+  bool blocked = false;
+  bool changed = false;
+  bool initialOn = false;
+  uint8_t action = 0;
+  int startX = 0;
+  int startY = 0;
+  int firstX = 0;
+  int firstY = 0;
+  int secondX = 0;
+  int secondY = 0;
+  int direction = 0;
+  int movementSign = 0;
+  bool vertical = false;
+  uint8_t initialValue = 0;
+};
+#endif
+
 enum class RequestUpdateResult { Rendered, Rejected };
-enum class HomeMenuItem { NONE, FILE_BROWSER, RECENTS, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
+enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
 
 /**
  * ActivityManager
@@ -51,6 +74,10 @@ class ActivityManager {
   MappedInputManager& mappedInput;
   std::vector<std::unique_ptr<Activity>> stackActivities;
   std::unique_ptr<Activity> currentActivity;
+#if CROSSINK_APP_CAP_TOUCH
+  LiveLightSwipeState edgeLightSwipe;
+  LiveLightSwipeState twoFingerLightSwipe;
+#endif
 
   void exitActivity(const RenderLock& lock);
 
@@ -61,6 +88,9 @@ class ActivityManager {
   // Set when an overlay is closed specifically to hand control back to the
   // reader's menu. It must wait until the reader is current again.
   int16_t pendingReaderMenuAction = -1;
+  // Target reader retained underneath nested screens while Home/Reader cancels
+  // each child through the ordinary activity-result path.
+  Activity* pendingHomeReaderTarget = nullptr;
 
   // A one-shot Home selection to restore after Settings replaces Home. This
   // is intentionally not persisted as recent-book order.
@@ -90,6 +120,8 @@ class ActivityManager {
   std::atomic<bool> restoredActivityNeedsRender{false};
 
   Activity* findEpubReader() const;
+  bool handleHomeReaderShortcut();
+  bool continueHomeReaderUnwind();
   bool handleGlobalHomeGesture();
   bool restoreBackdropBehindCurrentOverlay();
 
@@ -119,7 +151,7 @@ class ActivityManager {
   void goToNearbyBookReceive();
   void goToSettings(bool dismissOnUpSwipe = false);
   void goToFileBrowser(std::string path = {});
-  void goToRecentBooks();
+  void goToLibrary();
   void goToBrowser();
   bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false);
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
@@ -153,6 +185,7 @@ class ActivityManager {
   bool hasActivityNamed(const char* activityName) const;
 #ifdef SIMULATOR
   bool isCurrentActivityNamed(const char* activityName) const;
+  Activity* simulatorCurrentActivity() const { return currentActivity.get(); }
 #endif
   bool canSnapshotForSleepOverlay() const;
   bool requestManualReaderRefresh();
@@ -164,6 +197,7 @@ class ActivityManager {
   void notifyInputLockChanged(bool locked);
   void notifyUserInput();
   bool skipLoopDelay() const;
+  uint8_t inputPollDelayMs() const;
   std::string getCurrentBookPath() const;
   ScreenshotInfo getScreenshotInfo() const;
 

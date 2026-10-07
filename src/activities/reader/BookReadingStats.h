@@ -27,7 +27,8 @@ struct BookReadingStats {
   static BookReadingStats load(const std::string& cachePath);
 
   // Saves stats to cachePath/stats_v5.bin through recoverable .tmp/.bak files.
-  void save(const std::string& cachePath) const;
+  // Returns false if the new stats file could not be published.
+  bool save(const std::string& cachePath) const;
 
   // Deletes cachePath/stats_v5.bin, its transaction files, the previous
   // versioned filename, and legacy cachePath/stats.bin. Missing files are

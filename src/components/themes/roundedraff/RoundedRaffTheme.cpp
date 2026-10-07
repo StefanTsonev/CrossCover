@@ -30,7 +30,6 @@ constexpr int kTabHorizontalInset = 2;
 constexpr int kTitleFontId = UI_12_FONT_ID;     // Requested main title size: 12px
 constexpr int kSubtitleFontId = SMALL_FONT_ID;  // Requested subtitle size: 8px
 constexpr int kGuideFontId = SMALL_FONT_ID;     // Closest available to requested 6px
-constexpr int kHeaderClockYOffset = 3;
 
 void drawScrollBar(const GfxRenderer& renderer, Rect rect, int itemCount, int pageStartIndex, int pageItems) {
   if (itemCount <= 0 || pageItems <= 0 || itemCount <= pageItems) {
@@ -55,14 +54,13 @@ void drawScrollBar(const GfxRenderer& renderer, Rect rect, int itemCount, int pa
 int coverWidth = 0;
 
 void RoundedRaffTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
-                                  const bool readerContext) const {
+                                  const bool readerContext, const bool showStatus) const {
   // Home screen header is custom-rendered in drawRecentBookCover.
   if (title == nullptr) {
-    const int clockYOffset = readerContext ? 0 : kHeaderClockYOffset;
-    drawTopStatusBarClock(renderer, rect.y, nullptr, readerContext, clockYOffset);
+    if (showStatus) drawDisplayStatusBar(renderer, rect.y);
     return;
   }
-  BaseTheme::drawHeader(renderer, rect, title, subtitle, readerContext);
+  BaseTheme::drawHeader(renderer, rect, title, subtitle, readerContext, showStatus);
 }
 
 void RoundedRaffTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,

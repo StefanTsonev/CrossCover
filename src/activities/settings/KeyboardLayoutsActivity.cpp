@@ -126,8 +126,9 @@ void KeyboardLayoutsActivity::buildListScreen(UiApp::ScreenType& screen) {
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   for (uint8_t i = 0; i < keyboard_layouts::COUNT; ++i) {
-    rowItems[i].value = isLocked(i) ? tr(STR_DEFAULT_VALUE)
-                                    : (workingMask & keyboard_layouts::bitAt(i) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF));
+    rowItems[i].toggle = !isLocked(i);
+    rowItems[i].toggleChecked = (workingMask & keyboard_layouts::bitAt(i)) != 0;
+    rowItems[i].value = isLocked(i) ? tr(STR_DEFAULT_VALUE) : nullptr;
   }
 
   fui::ListProps props;

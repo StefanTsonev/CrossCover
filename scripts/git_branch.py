@@ -166,10 +166,10 @@ def inject_version(env):
     # Keep build provenance separate from CROSSINK_VERSION: production versions
     # intentionally omit the source revision, while diagnostics need the base
     # commit and whether the compiled tree had tracked modifications.
-    env.Append(CPPDEFINES=[
+    scoped = [
         ('CROSSINK_GIT_SHA', f'\\"{get_git_short_sha(project_dir)}\\"'),
         ('CROSSINK_GIT_DIRTY', f'\\"{get_git_dirty(project_dir)}\\"'),
-    ])
+    ]
 
     if pioenv in {'default', 'sticky', 'x4-pro', 'x4-classic'}:
         version_string = get_hardware_version(project_dir, pioenv)
@@ -179,15 +179,15 @@ def inject_version(env):
             print(f'CrossInk production build version: {version_string}')
         else:
             print(f'CrossInk build version: {version_string}')
-        env.Append(CPPDEFINES=[('CROSSINK_VERSION', f'\\"{version_string}\\"')])
+        scoped.append(('CROSSINK_VERSION', f'\\"{version_string}\\"'))
 
     elif pioenv == 'debug':
         branch = get_git_branch(project_dir)
         short_hash = get_git_short_hash(project_dir)
         ci_version = get_crossink_version(project_dir)
         suffix = f'-{branch}+{short_hash}'
+        scoped.append(('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'))
         env.Append(CPPDEFINES=[
-            ('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'),
             ('CROSSINK_BUILD_ENV', '\\"debug\\"'),
             'CROSSINK_SHOW_SLEEP_BUILD_INFO',
         ])
@@ -198,8 +198,8 @@ def inject_version(env):
         short_hash = get_git_short_hash(project_dir)
         ci_version = get_crossink_version(project_dir)
         suffix = f'-{branch}+{short_hash}'
+        scoped.append(('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'))
         env.Append(CPPDEFINES=[
-            ('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'),
             ('CROSSINK_BUILD_ENV', '\\"debug\\"'),
             'CROSSINK_SHOW_SLEEP_BUILD_INFO',
         ])
@@ -210,8 +210,8 @@ def inject_version(env):
         short_hash = get_git_short_hash(project_dir)
         ci_version = get_crossink_version(project_dir)
         suffix = f'-{branch}+{short_hash}'
+        scoped.append(('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'))
         env.Append(CPPDEFINES=[
-            ('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'),
             ('CROSSINK_BUILD_ENV', '\\"debug\\"'),
             'CROSSINK_SHOW_SLEEP_BUILD_INFO',
         ])
@@ -222,18 +222,24 @@ def inject_version(env):
         short_hash = get_git_short_hash(project_dir)
         ci_version = get_crossink_version(project_dir)
         suffix = f'-{branch}+{short_hash}'
-        env.Append(CPPDEFINES=[
-            ('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'),
-        ])
+        scoped.append(('CROSSINK_VERSION', f'\\"{ci_version}{suffix}\\"'))
         print(f'CrossInk test build version: {ci_version}{suffix}')
 
     elif pioenv == 'gh_release_rc':
         # CI passes CROSSINK_RC_HASH as an env var; locally we derive it from git.
         version_string = get_release_candidate_version(project_dir)
-        env.Append(CPPDEFINES=[
-            ('CROSSINK_VERSION', f'\\"{version_string}\\"'),
-        ])
+        scoped.append(('CROSSINK_VERSION', f'\\"{version_string}\\"'))
         print(f'CrossInk RC build version: {version_string}')
+
+    # Keep changing source identity out of unrelated compile commands.
+    if hasattr(env, 'AddBuildMiddleware'):
+        def add_build_info_defines(node_env, node):
+            build_env = node_env.Clone()
+            build_env.Append(CPPDEFINES=scoped)
+            return build_env.Object(node)
+        env.AddBuildMiddleware(add_build_info_defines, '*src/util/BuildInfo.cpp')
+    else:
+        env.Append(CPPDEFINES=scoped)
 
 
 # PlatformIO/SCons entry point — Import and env are SCons builtins injected at runtime.

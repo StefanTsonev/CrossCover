@@ -40,6 +40,9 @@ struct FrontlightPanelBookDetails {
   std::string title;
   std::string author;
   std::string chapter;
+  uint32_t chapterPage = 0;
+  uint32_t chapterPageCount = 0;
+  bool chapterPageCountEstimated = false;
   int progressPercent = 0;
 };
 
@@ -52,16 +55,18 @@ struct FrontlightPanelResult {
   FrontlightPanelAction action = FrontlightPanelAction::None;
   FrontlightDrawerState state{};
   bool activeEpub = false;
+  bool ttfRenderingChanged = false;
   std::string bookPath;
 };
 
 struct FrontlightPanelContext {
   Activity* sourceActivity = nullptr;
   // An open reader of any supported format. This controls reader header chrome
-  // and Home navigation; EPUB-only actions remain gated by activeEpub.
+  // and Home navigation; activeEpub identifies the reader save/handoff path.
   bool activeReaderBook = false;
   bool activeEpub = false;
   bool showReaderDetails = false;
+  bool showReadingStatsAction = true;
   std::string bookTitle;
   std::string bookPath;
   FrontlightPanelBookDetails bookDetails;

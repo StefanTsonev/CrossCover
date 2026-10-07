@@ -6,6 +6,7 @@
 
 #include "CrossPointSettings.h"
 #include "ReaderProgressSaveDebouncer.h"
+#include "SideButtonShortcuts.h"
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #if CROSSINK_APP_CAP_TOUCH
@@ -21,7 +22,7 @@ class TxtReaderActivity final : public Activity {
   int pagesUntilFullRefresh = 0;
   // Session-only display toggle; cached page layout remains unchanged.
   bool statusBarVisible = true;
-  bool sideButtonLongPressHandled = false;
+  SideButtonShortcuts sideButtonShortcuts;
   bool frontButtonLongPressHandled = false;
   bool longPowerButtonHandled = false;
   bool longPressBackHandled = false;
@@ -44,6 +45,8 @@ class TxtReaderActivity final : public Activity {
   uint8_t cachedVerticalMargin = 0;
   uint8_t cachedHorizontalMargin = 0;
   uint8_t cachedParagraphAlignment = CrossPointSettings::LEFT_ALIGN;
+  int cachedTopStatusBarHeight = 0;
+  int cachedBottomStatusBarHeight = 0;
   int cachedOrientedMarginTop = 0;
   int cachedOrientedMarginRight = 0;
   int cachedOrientedMarginBottom = 0;
@@ -60,6 +63,7 @@ class TxtReaderActivity final : public Activity {
   bool saveProgress(int page);
   bool queueProgressSave();
   bool flushQueuedProgress();
+  void saveProgressBeforeRestart();
   void loadProgress();
   void toggleDarkMode();
   void toggleHomeButtonInReader();
@@ -73,6 +77,7 @@ class TxtReaderActivity final : public Activity {
   void cycleReaderFont();
   void rebuildTextLayout();
   void openReaderMenu();
+  bool applyReaderOrientation(uint8_t orientation);
 #if CROSSINK_APP_CAP_TOUCH
   bool handlePinchFontResize();
   void resetPinchFontGesture();
@@ -96,6 +101,7 @@ class TxtReaderActivity final : public Activity {
     return true;
   }
   bool isReaderActivity() const override { return true; }
+  bool isBookReaderActivity() const override { return true; }
   bool usesFullScreenReaderVerticalSwipes() const override {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
     return true;
@@ -111,6 +117,7 @@ class TxtReaderActivity final : public Activity {
   std::string getCurrentBookPath() const override { return txt ? txt->getPath() : std::string{}; }
   std::string getCurrentBookTitle() const override { return txt ? txt->getTitle() : std::string{}; }
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
+  void onFrontlightPanelOpened() override { saveProgressBeforeRestart(); }
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
 
   // Renders the last saved page to the frame buffer without flushing to display.

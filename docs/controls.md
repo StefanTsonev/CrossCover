@@ -32,9 +32,10 @@ Note: Even though some actions assigned to the front buttons could be used globa
 
 ### Side Buttons
 
-- Layout
 - Orientation aware
-- Long-press action
+- Side-button chord (where supported)
+- Left/Up short-press and long-press actions
+- Right/Down short-press and long-press actions
 
 ### Taps & Gestures
 
@@ -44,13 +45,16 @@ Note: Even though some actions assigned to the front buttons could be used globa
 - Two-finger Screen Rotation (on supported multi-touch devices)
 - Tap to Hide Status Bar
 - Two-finger Swipe (on supported multi-touch devices)
+- Edge Gestures
 
 ### Next Page and Previous Page Gestures
 
 On touchscreen devices, **Next Page** and **Previous Page** are in
 **Settings > Controls > Taps & Gestures**. They change page-turn gestures while
-reading and can be configured independently. **Next Page** controls taps and
-left swipes; **Previous Page** controls taps and right swipes.
+reading and can be configured independently. In left-to-right books, **Next
+Page** controls taps and left swipes; **Previous Page** controls taps and right
+swipes. Right-to-left EPUBs reverse the normal tap zones and horizontal swipe
+directions to follow reading order.
 
 Both settings offer the same options:
 
@@ -77,7 +81,7 @@ On touchscreen devices with multi-touch support, enable **Pinch to Resize Font**
 in **Settings > Controls > Taps & Gestures**. While reading an EPUB or TXT
 book, move two fingers apart to increase the font or together to decrease it.
 Each completed pinch changes one available font-size step. Pinch resizing also
-requires **Touch Reader Controls** to be enabled. XTC pages are pre-rendered,
+requires reader touch input to be enabled. XTC pages are pre-rendered,
 so this option cannot resize them.
 
 ## Two-finger Screen Rotation
@@ -95,9 +99,9 @@ read; the four-way **Reading Orientation** setting still works.
 **Tap to Hide Status Bar** is enabled by default. When it is enabled, tap the
 visible status-bar area while reading to show or hide the entire bar for the
 current reading session. The toggle does not change page layout or page breaks;
-tap the same status-bar region again to restore a hidden bar. Use **Customize
-Status Bar** to choose which items the bar contains. The tap is available while
-**Touch Reader Controls** is enabled. For XTC books, when an XTC status bar is
+tap the same status-bar region again to restore a hidden bar. Use **Status
+Bars** to choose which items the top and bottom bars contain. The tap is available while reader touch input
+is enabled. For XTC books, when an XTC status bar is
 enabled, tap its configured top or bottom edge both to hide and to restore it.
 
 ## Two-finger Swipe Actions
@@ -120,37 +124,64 @@ Available actions depend on the device and reader:
 | Next Chapter / Previous Chapter | EPUB readers |
 | Increase Font Size / Decrease Font Size | EPUB and TXT readers |
 
-Use a clear, mostly straight motion so both contacts are recognized as one
-gesture. Configured two-finger swipes are handled separately from the ordinary
-one-finger page-turn mapping. On image-based XTC books, chapter and font-size
+Brightness and warmth respond while you drag, with longer swipes allowing
+finer one-point adjustments. Use a clear, mostly straight motion so both
+contacts are recognized as one gesture. Configured two-finger swipes are
+handled separately from the ordinary one-finger page-turn mapping. On image-based XTC books, chapter and font-size
 actions are consumed but cannot change the pre-rendered pages.
 
-## Side Button Long-press Action
+## Edge Gestures
 
-When set to `Change Font Size`, hold a side button for about 2 seconds:
+On touchscreen devices, open **Settings > Controls > Taps & Gestures > Edge
+Gestures**. Assign actions separately to **Left Edge Up**, **Left Edge Down**,
+**Right Edge Up**, and **Right Edge Down**. Start with one finger close to the
+chosen screen edge and slide vertically while staying along that edge. All four
+start as **Not Set**.
 
-- Up increases font size
-- Down decreases font size
+The available actions match [Two-finger Swipe Actions](#two-finger-swipe-actions):
+brightness and warmth on supported hardware, chapter changes in EPUBs, and
+font-size changes in EPUB/TXT books. Edge slides do not require multi-touch.
+Brightness and warmth respond while you drag; a longer slide gives finer
+one-point adjustments. Chapter and font-size actions run when you lift your
+finger. XTC pages cannot be resized or use the EPUB chapter actions.
 
-When set to `Orientation Change`, hold a side button for about 2 seconds:
+## Side Button Actions
 
-- Up cycles through the orientations in the following order: `Landscape CCW` -> `Inverted` -> `Landscape CW` -> `Portrait`
-- Down cycles through the orientations in the following order: `Landscape CW` -> `Inverted` -> `Landscape CCW` -> `Portrait`
+Open **Settings > Controls > Side Buttons** to assign a **Short-press Action**
+and **Long-press Action** independently to **Left/Up** and **Right/Down**.
+These actions apply while reading. A short action runs on release; a configured
+long action runs after a hold of about **0.7 seconds**, without also running
+the short action. Existing side-button layouts are converted to matching
+individual actions when you update.
+
+Alongside the usual reader shortcuts, you can choose:
+
+- **Previous Page** or **Next Page** to swap page-turn directions or make both
+  buttons advance.
+- **Previous Chapter** or **Next Chapter** for EPUB chapter navigation.
+- **Increase Font Size** or **Decrease Font Size** for EPUB/TXT text.
+- **Rotate Page CCW**, **Rotate Page CW**, or **Rotate Page 180°** for EPUB/TXT
+  orientation changes. The labels describe the direction the page turns.
+- **Ignore** to leave a press unassigned.
+
+XTC books have pre-rendered pages, so font-size and page-rotation actions do not
+apply. **Orientation aware** remains a separate option for side-button mapping.
 
 ## Power, Back, and Menu Button Actions
 
 Defaults:
 
 - Short-press Power Button Action: Ignore
-- Long-press Power Button Action: Sleep
+- Long-press Power Button Action: Sleep/Wake
 - Long-press Back Button Action: Browse Files
 - Long Press Menu Button Action: Ignore
 
 Available actions include:
 
 - Ignore
-- Sleep
-- Page Turn
+- Sleep (also available to chord and Home-button shortcuts)
+- Sleep/Wake or Wake (Power button only)
+- Next Page
 - Refresh Screen
 - Change Font
 - Guide Dots
@@ -169,6 +200,7 @@ Available actions include:
 - Footnotes
 - Dark Mode
 - Browse Files
+- Library
 - Create Clipping
 - Look Up Word
 - Quick Lock
@@ -176,10 +208,20 @@ Available actions include:
 - Toggle Frontlight (on supported devices)
 - Toggle Touchscreen (on supported devices)
 
+Power short- and long-press actions are separate. A short press wakes the
+device only when its **Short-press Action** is **Sleep/Wake** or **Wake**.
+**Sleep** only puts an awake device to sleep; **Wake** does nothing while it is
+awake. Holding Power always wakes the sleeping device. For the full startup
+instructions, see [Power On / Off](./user-guide.md#power-on--off).
+
+Assign **Library** to a Power, Back/Menu long-press, chord, Home-button, or
+Quick Actions shortcut to open the book list directly, where that shortcut is
+supported.
+
 ## Power + Up Shortcut
 
 The **Power + Up** shortcut runs the action selected in **Settings > Controls >
-Power + Up**. It is disabled by default. Press the **Power** and **Volume Up**
+Power Button > Power + Up**. It is disabled by default. Press the **Power** and **Volume Up**
 buttons together to trigger it, then release both buttons before using another
 shortcut.
 
@@ -214,6 +256,12 @@ pause while Quick Lock is active.
 
 ## Footnote Shortcut
 
-When a shortcut is mapped to Footnotes, the shortcut opens the footnotes submenu while reading. If the current page has only one footnote, CrossCover opens that referenced page directly.
+When a shortcut is mapped to **Footnotes**, it opens the page-reference selector
+(or a list fallback) while reading. If the current page has only one footnote,
+CrossCover opens that referenced page directly.
 
-The **Quick-return from Footnotes** setting controls whether the Power button acts like Back after opening a footnote page, making it faster to return to the original reading position.
+The **Quick-return from Footnotes** setting controls whether the Power button
+acts like Back after opening a footnote page. It appears under **Settings >
+Controls > Power Button** only after assigning **Footnotes** to Power short/long
+press or Back/Menu long press. See [Footnote Navigation](./user-guide.md#footnote-navigation)
+for selecting references on the page.

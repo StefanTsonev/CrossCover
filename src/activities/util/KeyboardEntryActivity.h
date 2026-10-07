@@ -34,6 +34,7 @@ class KeyboardEntryActivity : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
+  uint8_t inputPollDelayMs() const override { return mappedInput.hasTouchHardware() ? 2 : 10; }
 
  private:
   std::string title;
@@ -42,6 +43,9 @@ class KeyboardEntryActivity : public Activity {
   InputType inputType;
   size_t minLength;
   bool passwordVisible = false;
+  // Fixed UI font metric, captured before input starts. Querying the renderer
+  // during hit testing can wait for an entire e-ink refresh on TTF builds.
+  int inputLineHeight = 0;
 
   ButtonNavigator buttonNavigator;
 
@@ -58,11 +62,21 @@ class KeyboardEntryActivity : public Activity {
   // loop() routes touch snapshots against them. Cyrillic's wider rows register
   // 48 keys, so 56 retains headroom for the double-buffered interaction table.
   freeink::ui::InteractionBuffer<56> interactions;
+#if CROSSINK_APP_CAP_TOUCH
+  // Render-only state prevents live contact changes from altering a frame's
+  // feedback. Fixed storage is reused for the lifetime of this activity.
+  freeink::ui::InteractionBuffer<56> paintInteractions;
+  std::atomic<uint32_t> pendingFeedback{0};
+  uint16_t feedbackSequence = 0;  // Main task only; distinguishes repeated keys.
+  void showTouchFeedback(int16_t value);
+#endif
 
   // GPIO selection over the current layout grid (row/col in layout terms;
   // the bottom action row is just the last row).
   int selRow = 0;
   int selCol = 0;
+  // Touch entry has no persistent key highlight; button navigation reveals it.
+  std::atomic<bool> buttonSelectionVisible{false};
 
   bool confirmHeld = false;
   bool confirmLongHandled = false;
