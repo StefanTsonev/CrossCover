@@ -2,6 +2,7 @@
 setlocal
 
 cd /d "%~dp0"
+set "PYTHONUTF8=1"
 set "PIO=%USERPROFILE%\.platformio\penv\Scripts\pio.exe"
 
 if not exist "%PIO%" (
@@ -12,7 +13,7 @@ if not exist "%PIO%" (
     goto finish
 )
 
-"%PIO%" run -e default %*
+"%PIO%" run -j1 -e default %*
 set "BUILD_EXIT_CODE=%ERRORLEVEL%"
 
 :finish

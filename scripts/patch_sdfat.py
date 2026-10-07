@@ -72,18 +72,24 @@ def apply_patches(project_dir, dependency_dir):
         if current not in (upstream, patched):
             raise RuntimeError("Unrecognized SdFat source: " + relative)
         patch = project / "scripts" / "sdfat_patches" / name
+        # Git may check out patch files with CRLF on Windows, while registry
+        # sources retain LF. Normalize the patch, not the reviewed source bytes.
+        patch_text = patch.read_bytes().replace(b"\r\n", b"\n")
         # Validate the entire set before changing any dependency files.
         command = ["git", "apply", "--check"]
         if current == patched:
             command.append("--reverse")
-        result = subprocess.run(command + [str(patch)], cwd=dependency,
-                                env=process_env, capture_output=True, text=True)
+        result = subprocess.run(command + ["-"], cwd=dependency,
+                                env=process_env, input=patch_text,
+                                capture_output=True)
         if result.returncode:
-            raise RuntimeError("SdFat patch does not apply: " + name + "\n" + result.stderr)
+            raise RuntimeError("SdFat patch does not apply: " + name + "\n"
+                               + result.stderr.decode("utf-8", errors="replace"))
         if current == upstream:
-            pending.append((patch, target, patched))
-    for patch, target, expected in pending:
-        subprocess.run(["git", "apply", str(patch)], cwd=dependency, env=process_env, check=True)
+            pending.append((patch, patch_text, target, patched))
+    for patch, patch_text, target, expected in pending:
+        subprocess.run(["git", "apply", "-"], cwd=dependency, env=process_env,
+                       input=patch_text, check=True)
         if digest(target) != expected:
             raise RuntimeError("Unexpected patched SdFat source: " + target.name)
         print("Applied SdFat patch: " + patch.name)

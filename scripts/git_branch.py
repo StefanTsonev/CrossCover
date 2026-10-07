@@ -234,9 +234,17 @@ def inject_version(env):
     # Keep changing source identity out of unrelated compile commands.
     if hasattr(env, 'AddBuildMiddleware'):
         def add_build_info_defines(node_env, node):
-            build_env = node_env.Clone()
-            build_env.Append(CPPDEFINES=scoped)
-            return build_env.Object(node)
+            source_node = node.srcnode() if hasattr(node, 'srcnode') else node
+            source_path = str(source_node).replace('\\', '/')
+            if not (source_path == 'src/util/BuildInfo.cpp'
+                    or source_path.endswith('/src/util/BuildInfo.cpp')):
+                return node
+
+            # pioarduino's Windows wrapper intercepts Object keyword arguments.
+            # A cloned environment bypasses that interception and registers a
+            # second action for the same target. Keep the defines source-local.
+            defines = list(node_env.get('CPPDEFINES', [])) + scoped
+            return node_env.Object(node, CPPDEFINES=defines)
         env.AddBuildMiddleware(add_build_info_defines, '*src/util/BuildInfo.cpp')
     else:
         env.Append(CPPDEFINES=scoped)

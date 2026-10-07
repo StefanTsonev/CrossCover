@@ -219,6 +219,9 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   if (available.hasClippings) location.add(ReaderDrawerCatalogItem::ViewClippings);
   if (available.buttonDevice) {
     location.add(ReaderDrawerCatalogItem::SyncProgress);
+  }
+  location.add(ReaderDrawerCatalogItem::Hardcover);
+  if (available.buttonDevice) {
     location.add(ReaderDrawerCatalogItem::NearbyPositionSync);
     location.add(ReaderDrawerCatalogItem::SendNearbyBook);
   }
@@ -231,7 +234,6 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
   settings.add(ReaderDrawerCatalogItem::BookDictionary);
   settings.add(ReaderDrawerCatalogItem::RenderMode);
   settings.add(ReaderDrawerCatalogItem::IndexingMethod);
-  settings.add(ReaderDrawerCatalogItem::Hardcover);
   settings.add(ReaderDrawerCatalogItem::ToggleCompleted);
   if (available.globalStatsEnabled) settings.add(ReaderDrawerCatalogItem::TrackBookStats);
   if (available.showReadingPaceReset) settings.add(ReaderDrawerCatalogItem::ResetReadingPace);

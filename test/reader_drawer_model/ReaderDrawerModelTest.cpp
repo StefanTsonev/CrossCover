@@ -127,9 +127,10 @@ TEST(ReaderDrawerModel, CatalogOrderAndConditionalRowsMatchTouchDesign) {
   EXPECT_EQ(stableMore.items[2], ReaderDrawerCatalogItem::GoToStablePage);
 
   const auto& minimalLocation = minimal[static_cast<size_t>(ReaderDrawerTab::Location)];
-  EXPECT_EQ(minimalLocation.count, 4);
+  EXPECT_EQ(minimalLocation.count, 5);
   EXPECT_EQ(minimalLocation.items[0], ReaderDrawerCatalogItem::BookmarkToggle);
-  EXPECT_EQ(minimalLocation.items[3], ReaderDrawerCatalogItem::DisplayQr);
+  EXPECT_EQ(minimalLocation.items[2], ReaderDrawerCatalogItem::Hardcover);
+  EXPECT_EQ(minimalLocation.items[4], ReaderDrawerCatalogItem::DisplayQr);
 
   const ReaderDrawerCatalog complete = makeReaderDrawerCatalog({true, true, true, true, true, true});
   const auto& more = complete[static_cast<size_t>(ReaderDrawerTab::More)];
@@ -142,23 +143,24 @@ TEST(ReaderDrawerModel, CatalogOrderAndConditionalRowsMatchTouchDesign) {
   EXPECT_EQ(more.items[5], ReaderDrawerCatalogItem::AutoPageTurn);
 
   const auto& location = complete[static_cast<size_t>(ReaderDrawerTab::Location)];
-  EXPECT_EQ(location.count, 7);
+  EXPECT_EQ(location.count, 8);
   EXPECT_EQ(location.items[0], ReaderDrawerCatalogItem::BookmarkToggle);
   EXPECT_EQ(location.items[1], ReaderDrawerCatalogItem::ViewBookmarks);
   EXPECT_EQ(location.items[2], ReaderDrawerCatalogItem::DeleteBookmarks);
   EXPECT_EQ(location.items[3], ReaderDrawerCatalogItem::SaveClipping);
   EXPECT_EQ(location.items[4], ReaderDrawerCatalogItem::ViewClippings);
-  EXPECT_EQ(location.items[5], ReaderDrawerCatalogItem::Screenshot);
-  EXPECT_EQ(location.items[6], ReaderDrawerCatalogItem::DisplayQr);
+  EXPECT_EQ(location.items[5], ReaderDrawerCatalogItem::Hardcover);
+  EXPECT_EQ(location.items[6], ReaderDrawerCatalogItem::Screenshot);
+  EXPECT_EQ(location.items[7], ReaderDrawerCatalogItem::DisplayQr);
 
   const auto& settings = complete[static_cast<size_t>(ReaderDrawerTab::Settings)];
-  EXPECT_EQ(settings.count, 12);
+  EXPECT_EQ(settings.count, 11);
   EXPECT_EQ(settings.items[0], ReaderDrawerCatalogItem::StatusBar);
   EXPECT_EQ(settings.items[1], ReaderDrawerCatalogItem::Controls);
-  EXPECT_EQ(settings.items[5], ReaderDrawerCatalogItem::Hardcover);
-  EXPECT_EQ(settings.items[7], ReaderDrawerCatalogItem::TrackBookStats);
-  EXPECT_EQ(settings.items[8], ReaderDrawerCatalogItem::ResetReadingPace);
-  EXPECT_EQ(settings.items[11], ReaderDrawerCatalogItem::ResetBookReaderSettings);
+  EXPECT_EQ(settings.items[5], ReaderDrawerCatalogItem::ToggleCompleted);
+  EXPECT_EQ(settings.items[6], ReaderDrawerCatalogItem::TrackBookStats);
+  EXPECT_EQ(settings.items[7], ReaderDrawerCatalogItem::ResetReadingPace);
+  EXPECT_EQ(settings.items[10], ReaderDrawerCatalogItem::ResetBookReaderSettings);
 }
 
 TEST(ReaderDrawerModel, StatsRowsFollowGlobalAndBookTrackingChoices) {
@@ -189,18 +191,19 @@ TEST(ReaderDrawerModel, ButtonDevicesRestoreStatsAndTransfersInTheirTabs) {
   EXPECT_EQ(more.items[3], ReaderDrawerCatalogItem::ReadingStats);
 
   const auto& location = catalog[static_cast<size_t>(ReaderDrawerTab::Location)];
-  EXPECT_EQ(location.count, 7);
+  EXPECT_EQ(location.count, 8);
   EXPECT_EQ(location.items[2], ReaderDrawerCatalogItem::SyncProgress);
-  EXPECT_EQ(location.items[3], ReaderDrawerCatalogItem::NearbyPositionSync);
-  EXPECT_EQ(location.items[4], ReaderDrawerCatalogItem::SendNearbyBook);
-  EXPECT_EQ(location.items[5], ReaderDrawerCatalogItem::Screenshot);
-  EXPECT_EQ(location.items[6], ReaderDrawerCatalogItem::DisplayQr);
+  EXPECT_EQ(location.items[3], ReaderDrawerCatalogItem::Hardcover);
+  EXPECT_EQ(location.items[4], ReaderDrawerCatalogItem::NearbyPositionSync);
+  EXPECT_EQ(location.items[5], ReaderDrawerCatalogItem::SendNearbyBook);
+  EXPECT_EQ(location.items[6], ReaderDrawerCatalogItem::Screenshot);
+  EXPECT_EQ(location.items[7], ReaderDrawerCatalogItem::DisplayQr);
 
   available.hasBookmarks = true;
   available.hasClippings = true;
   const ReaderDrawerCatalog fullCatalog = makeReaderDrawerCatalog(available);
   const auto& fullLocation = fullCatalog[static_cast<size_t>(ReaderDrawerTab::Location)];
-  EXPECT_EQ(fullLocation.count, 10);
+  EXPECT_EQ(fullLocation.count, 11);
   EXPECT_EQ(fullLocation.items[5], ReaderDrawerCatalogItem::SyncProgress);
 }
 

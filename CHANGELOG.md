@@ -107,6 +107,8 @@
 
 ### Fixed
 
+- Windows firmware builds no longer register conflicting compile actions when adding build version information.
+- SdFat build patches now apply on Windows when Git checks out patch files with CRLF line endings.
 - Hardcover book search results now remain in the relevance order returned by Hardcover.
 - Dictionary lookup no longer reports that an English-Bulgarian dictionary is required.
 - Settings can now be highlighted and opened from the default home menu.
@@ -114,6 +116,7 @@
 ### Changed
 
 - Dictionary selection now opens as a popup when multiple dictionaries are available.
+- Moved the reader's Hardcover menu to Location, immediately after Sync Progress on button devices.
 - Added `build.cmd` to build the default firmware with PlatformIO's Python 3.11 environment.
 
 ## [v1.4.0-crosscover.1] - 2026-07-15
