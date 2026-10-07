@@ -13,7 +13,7 @@ What problem does this PR solve, and what is the intended user-visible result?
 - [ ] No SDK/platform change
 - [ ] OpenX4/FreeInk SDK change (describe below)
 - [ ] Hardcover affected
-- [ ] Anna's Archive or Worker affected
+- [ ] LibGen or Worker affected
 - [ ] Reader/cache format affected
 
 ## Verification
@@ -28,5 +28,4 @@ What problem does this PR solve, and what is the intended user-visible result?
 
 Describe any meaningful heap, largest-free-block, stack, flash, or network
 buffer impact. Include measurements when available.
-
 

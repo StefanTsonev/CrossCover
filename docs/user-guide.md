@@ -918,6 +918,10 @@ tabs, **Up/Down** select rows, and **Confirm** opens the selected option. Font,
 spacing, and margin changes have a live preview. Global settings use the same
 Left/Right tab and Up/Down row navigation.
 
+CrossCover also adds **Hardcover** to the bookmark-icon tab (called **Location**
+in the menu model), immediately after **Sync Progress** on X3/X4. It opens book
+linking, progress updates, read status, and rating actions.
+
 **Reset Book Reader Settings** restores the current EPUB's inherited global
 reader defaults without deleting progress, bookmarks, clippings, or stats.
 **Delete Book Cache** rebuilds cached book data and keeps those reader choices.

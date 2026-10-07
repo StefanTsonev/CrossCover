@@ -52,7 +52,8 @@ Review these files and flows after every upstream merge:
 - `src/activities/reader/HardcoverBookActivity.*`
 - `src/activities/home/HomeActivity.*`
 - `src/activities/reader/EpubReaderActivity.*`
-- `src/activities/reader/EpubReaderMenuActivity.*`
+- `src/activities/reader/EpubReaderDrawerActivity.*`
+- `src/activities/reader/EpubReaderMenuModel.h`
 - `src/SettingsList.h` and `src/activities/settings/SettingsActivity.*`
 - `lib/I18n/translations/*.yaml` Hardcover strings
 
@@ -60,7 +61,7 @@ Required behavior:
 
 - Hardcover is available from `Home -> CrossCover`.
 - Hardcover setup is available from `Settings -> System`.
-- The reader menu exposes the Hardcover actions.
+- The reader menu's Location tab exposes Hardcover immediately after Sync Progress on X3/X4.
 - TLS requests work on X3/X4 without requiring an RTC to be present.
 - API credentials remain stored/importable through the existing CrossCover path.
 - Progress and other updates remain queued where the device is offline.

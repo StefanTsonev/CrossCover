@@ -75,7 +75,7 @@ Search and downloads use the CrossCover Worker relay and LibGen's `ads.php` → 
 
 ## Linking a book to Hardcover
 
-Inside an EPUB, open the reader menu and choose `Hardcover`.
+Inside an EPUB, open the reader menu's bookmark-icon tab (`Location`) and choose `Hardcover`, immediately after `Sync Progress` on X3/X4.
 
 Available actions include:
 
@@ -128,15 +128,15 @@ CrossCover follows the upstream CrossInk version and adds a fork-specific suffix
 Example:
 
 ```text
-1.6.0-crosscover.1
+1.6.1-crosscover.1
 ```
 
-This means CrossCover release `1` based on CrossInk `1.6.0`.
+This means CrossCover release `1` based on CrossInk `1.6.1`.
 
-When CrossInk releases `1.6.1`, a corresponding CrossCover release may be named:
+Another CrossCover release based on the same CrossInk version would increment the suffix:
 
 ```text
-1.6.1-crosscover.1
+1.6.1-crosscover.2
 ```
 
 CrossCover is an independent personal fork and is not an official CrossInk release.
