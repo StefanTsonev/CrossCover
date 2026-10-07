@@ -82,7 +82,11 @@ void HardcoverLibraryActivity::onExit() {
 
 void HardcoverLibraryActivity::refresh() {
   loaded = false;
-  HARDCOVER_LINKS.getPending(pending);
+  if (!HARDCOVER_LINKS.getPending(pending)) {
+    lastError = HardcoverClient::JSON_ERROR;
+    requestUpdate();
+    return;
+  }
   if (!HARDCOVER_STORE.hasApiToken()) {
     lastError = HardcoverClient::NO_TOKEN;
     requestUpdate();
@@ -221,7 +225,12 @@ void HardcoverLibraryActivity::syncPending() {
     }
   }
 
-  HARDCOVER_LINKS.getPending(pending);
+  if (!HARDCOVER_LINKS.getPending(pending)) {
+    lastError = HardcoverClient::JSON_ERROR;
+    loaded = false;
+    requestUpdate();
+    return;
+  }
   char summary[64];
   snprintf(summary, sizeof(summary), tr(STR_HARDCOVER_SYNC_SUMMARY), sent, static_cast<int>(pending.size()));
   refresh();

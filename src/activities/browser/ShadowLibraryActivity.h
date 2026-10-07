@@ -41,7 +41,8 @@ class ShadowLibraryActivity final : public Activity {
   void launchWifiSelection();
   void launchSearch();
   void performSearch(const std::string& query);
-  void prepareCoverThumbnails();
+  void prepareCoverThumbnails(size_t firstResult, size_t count);
+  void loadVisibleCoverThumbnails();
   int itemsPerPage() const;
   void renderResultCard(int index, int x, int y, int width, int height, bool selected) const;
   void downloadBook(const ShadowLibraryBook& book);

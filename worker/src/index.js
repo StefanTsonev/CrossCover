@@ -1,5 +1,8 @@
 const MAX_RESULTS = 8;
 const MAX_QUERY_LENGTH = 96;
+const MAX_SEARCH_RESPONSE_BYTES = 15 * 1024;
+const MAX_SEARCH_HTML_BYTES = 256 * 1024;
+const utf8Encoder = new TextEncoder();
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -21,6 +24,42 @@ function decodeHtml(value) {
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
 }
 
+function limitUtf8(value, maxBytes) {
+  let result = "";
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = utf8Encoder.encode(character).length;
+    if (bytes + characterBytes > maxBytes) break;
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
+}
+
+async function readTextLimited(response, maxBytes) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new Error("upstream response exceeded size limit");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 function scrapeLibGenResults(html, origin) {
   const results = [];
   const rows = html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi);
@@ -36,14 +75,27 @@ function scrapeLibGenResults(html, origin) {
     const coverMatch = cells[0].match(/<img\b[^>]*src=["']([^"']+)["']/i);
     const titleMatch = cells[1].match(/href=["']edition\.php\?id=[^"']+["'][^>]*>([\s\S]*?)<\/a>/i);
     const boldTitle = cells[1].match(/<b>([\s\S]*?)<\/b>/i);
-    const title = decodeHtml((boldTitle ? boldTitle[1] : titleMatch ? titleMatch[1] : "").replace(/<[^>]+>/g, " "));
-    const author = decodeHtml(cells[2].replace(/<[^>]+>/g, " "));
-    const year = decodeHtml(cells[4].replace(/<[^>]+>/g, " "));
-    const language = decodeHtml(cells[5].replace(/<[^>]+>/g, " "));
-    const size = decodeHtml(cells[7].replace(/<[^>]+>/g, " "));
+    const plainText = (html) => decodeHtml(html.replace(/<[^>]+>/g, " "))
+      .replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+    const title = limitUtf8(plainText(boldTitle ? boldTitle[1] : titleMatch ? titleMatch[1] : ""), 256);
+    const author = limitUtf8(plainText(cells[2]), 128);
+    const year = limitUtf8(plainText(cells[4]), 24);
+    const language = limitUtf8(plainText(cells[5]), 48);
+    const size = limitUtf8(plainText(cells[7]), 48);
     const format = decodeHtml(cells[8].replace(/<[^>]+>/g, " ")).toLowerCase();
     if (!title || format !== "epub") continue;
-    const cover = coverMatch ? new URL(coverMatch[1], "https://libgen.li").toString() : "";
+    let cover = "";
+    if (coverMatch) {
+      try {
+        const coverUrl = new URL(coverMatch[1].replace(/&amp;/g, "&"), "https://libgen.li");
+        if (coverUrl.protocol === "https:" && coverUrl.hostname === "libgen.li" &&
+            (coverUrl.pathname.startsWith("/covers/") || coverUrl.pathname.startsWith("/fictioncovers/"))) {
+          cover = limitUtf8(coverUrl.toString(), 200);
+        }
+      } catch (_) {
+        // A malformed cover should not discard an otherwise valid book result.
+      }
+    }
     results.push({ title, author, year, language, format, size,
       cover: cover ? coverProxyUrl(origin, cover) : "",
       downloads: "", md5: md5Match[1],
@@ -62,7 +114,7 @@ async function fetchLibGen(env, path) {
 async function resolveLibGenMirror(env, md5) {
   const resolver = await fetchLibGen(env, `/ads.php?md5=${md5}`);
   if (!resolver.ok) return null;
-  const html = await resolver.text();
+  const html = await readTextLimited(resolver, 128 * 1024);
   const match = html.match(/href=["']([^"']*get\.php[^"']*)["']/i);
   return match ? new URL(match[1].replace(/&amp;/g, "&"), resolver.url).toString() : null;
 }
@@ -75,8 +127,16 @@ async function handle(request, env) {
     const upstream = await fetchLibGen(env,
       `/index.php?req=${encodeURIComponent(query)}&columns%5B%5D=t&columns%5B%5D=a&columns%5B%5D=s&columns%5B%5D=y&columns%5B%5D=p&columns%5B%5D=i&objects%5B%5D=f&objects%5B%5D=e&objects%5B%5D=s&objects%5B%5D=a&objects%5B%5D=p&objects%5B%5D=w&topics%5B%5D=l&topics%5B%5D=c&topics%5B%5D=f&topics%5B%5D=a&topics%5B%5D=m&topics%5B%5D=r&topics%5B%5D=s&res=25&covers=on&filesuns=all`);
     if (!upstream.ok) return json({ error: `upstream HTTP ${upstream.status}` }, 502);
-    const results = scrapeLibGenResults(await upstream.text(), url.origin);
-    return json({ results });
+    const results = scrapeLibGenResults(await readTextLimited(upstream, MAX_SEARCH_HTML_BYTES), url.origin);
+    const payload = { results };
+    let body = JSON.stringify(payload);
+    while (utf8Encoder.encode(body).byteLength > MAX_SEARCH_RESPONSE_BYTES && results.length > 0) {
+      results.pop();
+      body = JSON.stringify(payload);
+    }
+    return new Response(body, {
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
   }
   if (url.pathname === "/download") {
     const md5 = url.searchParams.get("md5") || "";
@@ -105,10 +165,15 @@ async function handle(request, env) {
         referer: "https://libgen.li/",
         "user-agent": "Mozilla/5.0 (CrossCover; LibGen cover proxy)",
       },
-      cf: { cacheEverything: true, cacheTtl: 604800 },
+      cf: {
+        cacheEverything: true,
+        cacheTtl: 604800,
+        image: { width: 246, height: 360, fit: "scale-down", format: "jpeg", quality: 75 },
+      },
     });
     if (!cover.ok || !cover.body) return json({ error: `cover HTTP ${cover.status}` }, 502);
     const headers = new Headers(cover.headers);
+    headers.set("content-type", "image/jpeg");
     headers.set("cache-control", "public, max-age=604800");
     headers.delete("content-length");
     return new Response(cover.body, { status: cover.status, headers });
@@ -116,4 +181,17 @@ async function handle(request, env) {
   return json({ service: "crosscover-libgen", endpoints: ["/search?q=...", "/download?md5=..."] });
 }
 
-export default { fetch: handle };
+export default {
+  async fetch(request, env) {
+    try {
+      return await handle(request, env);
+    } catch (error) {
+      console.error(JSON.stringify({
+        message: "LibGen request failed",
+        path: new URL(request.url).pathname,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return json({ error: "upstream request failed" }, 502);
+    }
+  },
+};

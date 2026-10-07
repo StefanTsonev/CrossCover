@@ -100,20 +100,44 @@ void ShadowLibraryActivity::loop() {
 
   if (resultCount > 0) {
     buttonNavigator.onNext([this] {
+      const int oldPage = selectedIndex / itemsPerPage();
       selectedIndex = ButtonNavigator::nextIndex(selectedIndex, resultCount);
-      requestUpdate();
+      if (selectedIndex / itemsPerPage() != oldPage) {
+        requestUpdateAndWait();
+        loadVisibleCoverThumbnails();
+      } else {
+        requestUpdate();
+      }
     });
     buttonNavigator.onPrevious([this] {
+      const int oldPage = selectedIndex / itemsPerPage();
       selectedIndex = ButtonNavigator::previousIndex(selectedIndex, resultCount);
-      requestUpdate();
+      if (selectedIndex / itemsPerPage() != oldPage) {
+        requestUpdateAndWait();
+        loadVisibleCoverThumbnails();
+      } else {
+        requestUpdate();
+      }
     });
     buttonNavigator.onNextContinuous([this] {
+      const int oldPage = selectedIndex / itemsPerPage();
       selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, resultCount, itemsPerPage());
-      requestUpdate();
+      if (selectedIndex / itemsPerPage() != oldPage) {
+        requestUpdateAndWait();
+        loadVisibleCoverThumbnails();
+      } else {
+        requestUpdate();
+      }
     });
     buttonNavigator.onPreviousContinuous([this] {
+      const int oldPage = selectedIndex / itemsPerPage();
       selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, resultCount, itemsPerPage());
-      requestUpdate();
+      if (selectedIndex / itemsPerPage() != oldPage) {
+        requestUpdateAndWait();
+        loadVisibleCoverThumbnails();
+      } else {
+        requestUpdate();
+      }
     });
   }
 }
@@ -282,13 +306,14 @@ void ShadowLibraryActivity::renderResultCard(const int index, const int x, const
   }
 }
 
-void ShadowLibraryActivity::prepareCoverThumbnails() {
+void ShadowLibraryActivity::prepareCoverThumbnails(const size_t firstResult, const size_t count) {
   if (!Storage.ensureDirectoryExists(COVER_CACHE_DIR)) {
     LOG_ERR("SHADOW", "Failed to create LibGen cover cache directory");
     return;
   }
 
-  for (size_t i = 0; i < resultCount; ++i) {
+  const size_t endResult = std::min(resultCount, firstResult + count);
+  for (size_t i = firstResult; i < endResult; ++i) {
     auto& book = results[i];
     book.coverBmpPath.clear();
     if (book.coverUrl.empty() || book.md5.empty()) continue;
@@ -337,6 +362,14 @@ void ShadowLibraryActivity::prepareCoverThumbnails() {
       book.coverBmpPath.clear();
     }
   }
+}
+
+void ShadowLibraryActivity::loadVisibleCoverThumbnails() {
+  if (resultCount == 0) return;
+  const size_t pageItems = static_cast<size_t>(itemsPerPage());
+  const size_t firstResult = (static_cast<size_t>(selectedIndex) / pageItems) * pageItems;
+  prepareCoverThumbnails(firstResult, pageItems);
+  requestUpdate();
 }
 
 void ShadowLibraryActivity::checkAndConnectWifi() {
@@ -392,8 +425,12 @@ void ShadowLibraryActivity::performSearch(const std::string& query) {
     // same as a valid search with no matches.
     errorMessage = tr(STR_SHADOW_LIBRARY_SEARCH_FAILED);
   } else {
-    if (resultCount > 0) prepareCoverThumbnails();
     state = State::BROWSING;
+    // Show the text results immediately; cover downloads happen only for the
+    // visible page so a slow thumbnail cannot hide the search result list.
+    requestUpdateAndWait();
+    loadVisibleCoverThumbnails();
+    return;
   }
   requestUpdate();
 }
@@ -412,11 +449,39 @@ void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
     return;
   }
 
-  std::string filename = StringUtils::sanitizeFilename(book.title);
-  if (filename.empty()) filename = "libgen-book";
+  if (book.format != "epub") {
+    state = State::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+    return;
+  }
+  std::string stem = StringUtils::sanitizeFilename(book.title);
+  if (stem.empty()) stem = "libgen-book";
   const auto& directory = ShadowLibrarySettings::instance().downloadDirectory();
-  filename = directory == "/" ? "/" + filename : directory + "/" + filename;
-  filename += "." + (book.format.empty() ? "epub" : book.format);
+  const std::string prefix = directory == "/" ? "/" : directory + "/";
+  std::string filename;
+  for (unsigned suffix = 1; suffix <= 1000; ++suffix) {
+    filename = prefix + stem;
+    if (suffix > 1) filename += " (" + std::to_string(suffix) + ")";
+    filename += ".epub";
+    if (!Storage.exists(filename.c_str())) break;
+    filename.clear();
+  }
+  if (filename.empty()) {
+    LOG_ERR("SHADOW", "Could not allocate a unique LibGen destination filename");
+    state = State::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+    return;
+  }
+  const std::string temporaryPath = filename + ".part";
+  if (Storage.exists(temporaryPath.c_str()) && !Storage.remove(temporaryPath.c_str())) {
+    LOG_ERR("SHADOW", "Could not remove stale partial download: %s", temporaryPath.c_str());
+    state = State::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+    requestUpdate();
+    return;
+  }
   bool cancelRequested = false;
   auto pollCancel = [this, &cancelRequested] {
     mappedInput.update();
@@ -432,7 +497,7 @@ void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
   options.bufferSize = DOWNLOAD_BUFFER_SIZE;
   options.transport = HttpDownloader::Transport::WOLFSSL;
   const auto result = HttpDownloader::downloadToFile(
-      downloadUrl, filename,
+      downloadUrl, temporaryPath,
       [this](size_t downloaded, size_t total) {
         downloadProgress = downloaded;
         downloadTotal = total;
@@ -440,7 +505,12 @@ void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
       },
       &cancelRequested, "", "", options);
 
-  if (result == HttpDownloader::OK) {
+  if (result == HttpDownloader::OK && !Storage.rename(temporaryPath.c_str(), filename.c_str())) {
+    LOG_ERR("SHADOW", "Download completed but could not publish %s", filename.c_str());
+    Storage.remove(temporaryPath.c_str());
+    state = State::ERROR;
+    errorMessage = tr(STR_DOWNLOAD_FAILED);
+  } else if (result == HttpDownloader::OK) {
     clearBookCache(filename);
     state = State::BROWSING;
   } else if (result == HttpDownloader::ABORTED) {

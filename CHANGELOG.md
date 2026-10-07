@@ -1,3 +1,14 @@
+## [Unreleased]
+
+### Fixed
+
+- Hardcover authentication now starts from the minimal network boot to free memory for its TLS connection.
+- LibGen downloads now use a unique filename and are published only after a complete download, preserving existing books.
+- Hardcover progress is no longer sent as a page count when the linked edition has no page count.
+- Hardcover credentials and book links now use recoverable atomic writes; unreadable link data is preserved instead of replaced.
+- LibGen search responses are bounded to the device limit, and visible results appear before their thumbnails load.
+- LibGen cover responses are converted to JPEG thumbnails before the device downloads them.
+
 ## [v1.6.0-crosscover.2] - 2026-10-03
 
 ### Changed

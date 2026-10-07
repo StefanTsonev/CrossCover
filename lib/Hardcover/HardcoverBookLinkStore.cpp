@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <PersistableStore.h>
 
 #include <algorithm>
 #include <utility>
@@ -13,24 +14,18 @@ namespace {
 constexpr char HARDCOVER_LINKS_JSON[] = "/.crosspoint/hardcover_links.json";
 
 bool loadLinksDocument(JsonDocument& doc) {
-  if (!Storage.exists(HARDCOVER_LINKS_JSON)) return true;
-
-  String json = Storage.readFile(HARDCOVER_LINKS_JSON);
-  if (json.isEmpty()) return true;
-
-  auto error = deserializeJson(doc, json.c_str());
-  if (error) {
-    LOG_ERR("HDL", "Link JSON parse error: %s", error.c_str());
+  const std::string backupPath = std::string(HARDCOVER_LINKS_JSON) + ".bak";
+  if (!Storage.exists(HARDCOVER_LINKS_JSON) && !Storage.exists(backupPath.c_str())) return true;
+  if (!PersistableStoreBase::readDocFromFile(HARDCOVER_LINKS_JSON, doc)) return false;
+  if (!doc["links"].is<JsonArrayConst>()) {
+    LOG_ERR("HDL", "Link JSON is missing its links array");
     return false;
   }
   return true;
 }
 
 bool saveLinksDocument(JsonDocument& doc) {
-  Storage.mkdir("/.crosspoint");
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(HARDCOVER_LINKS_JSON, json);
+  return PersistableStoreBase::writeDocToFileAtomically(HARDCOVER_LINKS_JSON, doc);
 }
 
 JsonArray ensureLinksArray(JsonDocument& doc) {
@@ -51,17 +46,8 @@ JsonObject findLink(JsonArray links, const std::string& path) {
 }  // namespace
 
 bool HardcoverBookLinkStore::getLink(const std::string& path, HardcoverBookLink& out) const {
-  if (!Storage.exists(HARDCOVER_LINKS_JSON)) return false;
-
-  String json = Storage.readFile(HARDCOVER_LINKS_JSON);
-  if (json.isEmpty()) return false;
-
   JsonDocument doc;
-  auto error = deserializeJson(doc, json.c_str());
-  if (error) {
-    LOG_ERR("HDL", "Link JSON parse error: %s", error.c_str());
-    return false;
-  }
+  if (!loadLinksDocument(doc)) return false;
 
   JsonArray links = doc["links"].as<JsonArray>();
   for (JsonObject link : links) {
@@ -84,17 +70,8 @@ bool HardcoverBookLinkStore::getLink(const std::string& path, HardcoverBookLink&
 
 bool HardcoverBookLinkStore::getPending(std::vector<HardcoverBookLink>& out) const {
   out.clear();
-  if (!Storage.exists(HARDCOVER_LINKS_JSON)) return true;
-
-  String json = Storage.readFile(HARDCOVER_LINKS_JSON);
-  if (json.isEmpty()) return true;
-
   JsonDocument doc;
-  const auto error = deserializeJson(doc, json.c_str());
-  if (error) {
-    LOG_ERR("HDL", "Pending link JSON parse error: %s", error.c_str());
-    return false;
-  }
+  if (!loadLinksDocument(doc)) return false;
 
   JsonArray links = doc["links"].as<JsonArray>();
   out.reserve(8);
@@ -118,12 +95,10 @@ bool HardcoverBookLinkStore::getPending(std::vector<HardcoverBookLink>& out) con
 }
 
 bool HardcoverBookLinkStore::setLink(const std::string& path, int bookId, const std::string& title) const {
-  Storage.mkdir("/.crosspoint");
-
   JsonDocument doc;
   if (!loadLinksDocument(doc)) {
-    LOG_ERR("HDL", "Replacing unreadable link JSON");
-    doc.clear();
+    LOG_ERR("HDL", "Refusing to replace unreadable link JSON");
+    return false;
   }
 
   JsonArray links = ensureLinksArray(doc);

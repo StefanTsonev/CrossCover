@@ -3,7 +3,10 @@
 This Worker keeps LibGen scraping and download resolution off the ESP32.
 The device calls `/search?q=...`, streams `/download?md5=...` to SD, and uses
 `/cover?url=...` for LibGen thumbnails. The cover endpoint adds the headers
-LibGen requires and caches the image at the edge.
+LibGen requires, converts supported source images to cached 246x360 JPEGs,
+and limits search JSON responses to 15 KiB for the device's bounded parser.
+Cloudflare image transformations may incur usage charges on the account that
+owns the Worker.
 
 Search checks the first 25 LibGen catalog entries and returns up to 8 EPUB matches.
 

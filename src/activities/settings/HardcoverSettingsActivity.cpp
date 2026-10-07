@@ -4,29 +4,18 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
-#include <WiFi.h>
 
 #include <algorithm>
-#include <cstdio>
 
 #include "HardcoverClient.h"
 #include "HardcoverCredentialStore.h"
 #include "MappedInputManager.h"
-#include "SdCardFontSystem.h"
-#include "activities/network/WifiSelectionActivity.h"
+#include "SilentRestart.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
 const StrId kMenuItems[3] = {StrId::STR_HARDCOVER_API_KEY, StrId::STR_AUTHENTICATE, StrId::STR_CLEAR};
-
-const char* hardcoverErrorMessage(HardcoverClient::Error error, char* buffer, const size_t bufferSize) {
-  if (!HardcoverClient::lastErrorDetail()[0]) {
-    return HardcoverClient::errorString(error);
-  }
-  snprintf(buffer, bufferSize, "%s: %s", HardcoverClient::errorString(error), HardcoverClient::lastErrorDetail());
-  return buffer;
-}
 
 int drawWrappedLineBlock(const GfxRenderer& renderer, const int fontId, const int x, int y, const int maxWidth,
                          const char* text, const int maxLines = 2) {
@@ -37,20 +26,6 @@ int drawWrappedLineBlock(const GfxRenderer& renderer, const int fontId, const in
     y += lineHeight;
   }
   return y;
-}
-
-void prepareHardcoverAuthentication(GfxRenderer& renderer) {
-  const uint32_t freeBefore = ESP.getFreeHeap();
-  const uint32_t maxBefore = ESP.getMaxAllocHeap();
-  // The selected SD font and theme glyph cache are presentation resources;
-  // credentials and the persistent Hardcover queue are not touched here.
-  sdFontSystem.releaseForNetwork(renderer);
-  if (auto* const fontCache = renderer.getFontCacheManager()) {
-    fontCache->clearCache();
-  }
-  LOG_INF("HDC", "Prepared authentication memory: free=%u->%u maxAlloc=%u->%u", static_cast<unsigned>(freeBefore),
-          static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(maxBefore),
-          static_cast<unsigned>(ESP.getMaxAllocHeap()));
 }
 
 }  // namespace
@@ -96,27 +71,18 @@ void HardcoverSettingsActivity::handleSelection() {
     GUI.drawPopup(renderer, imported ? tr(STR_HARDCOVER_TOKEN_IMPORTED) : tr(STR_HARDCOVER_TOKEN_MISSING));
     requestUpdate();
   } else if (selectedIndex == Authenticate) {
-    if (WiFi.status() != WL_CONNECTED) {
-      startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-                             [this](const ActivityResult& result) {
-                               if (!result.isCancelled) {
-                                 prepareHardcoverAuthentication(renderer);
-                                 handleSelection();
-                               } else {
-                                 GUI.drawPopup(renderer, tr(STR_WIFI_CONN_FAILED));
-                                 requestUpdate();
-                               }
-                             });
+    if (!HARDCOVER_STORE.hasApiToken()) {
+      GUI.drawPopup(renderer, tr(STR_HARDCOVER_TOKEN_MISSING));
+      requestUpdate();
       return;
     }
-
-    prepareHardcoverAuthentication(renderer);
-    const auto error = HardcoverClient::authenticate();
-    char errorBuffer[128];
-    GUI.drawPopup(renderer, error == HardcoverClient::OK
-                                ? tr(STR_HARDCOVER_AUTH_READY)
-                                : hardcoverErrorMessage(error, errorBuffer, sizeof(errorBuffer)));
-    requestUpdate();
+    if (!HARDCOVER_STORE.saveToFile()) {
+      LOG_ERR("HDC", "Could not persist API token before minimal authentication boot");
+      GUI.drawPopup(renderer, tr(STR_HARDCOVER_AUTH_START_FAILED));
+      requestUpdate();
+      return;
+    }
+    silentRestartToNetwork(NetworkBootTarget::HARDCOVER_AUTH);
   } else if (selectedIndex == ClearKey) {
     HARDCOVER_STORE.clearApiToken();
     requestUpdate();

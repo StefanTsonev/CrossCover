@@ -164,19 +164,19 @@ void copyBodyPreview(const char* body, char* preview, const size_t previewSize) 
 }
 
 bool appendGraphqlStringLiteral(char* out, size_t outSize, size_t& pos, const char* text) {
-  if (pos >= outSize) return false;
+  if (pos >= outSize || outSize - pos < 3) return false;
   out[pos++] = '"';
   if (text) {
     for (size_t i = 0; text[i] != '\0'; i++) {
       const char c = text[i];
       const bool needsEscape = c == '"' || c == '\\';
       const size_t needed = needsEscape ? 2 : 1;
-      if (pos + needed >= outSize) return false;
+      if (needed > outSize - pos - 2) return false;
       if (needsEscape) out[pos++] = '\\';
       out[pos++] = c;
     }
   }
-  if (pos >= outSize) return false;
+  if (outSize - pos < 2) return false;
   out[pos++] = '"';
   out[pos] = '\0';
   return true;
@@ -224,8 +224,15 @@ HardcoverClient::Error parseAuth(const char* body) {
     setLastErrorDetail("Auth response missing user");
     return HardcoverClient::AUTH_FAILED;
   }
+  const int previousUserId = HARDCOVER_STORE.getUserId();
+  const std::string previousUsername = HARDCOVER_STORE.getUsername();
   HARDCOVER_STORE.setUserInfo(id, username);
-  HARDCOVER_STORE.saveToFile();
+  if (!HARDCOVER_STORE.saveToFile()) {
+    HARDCOVER_STORE.setUserInfo(previousUserId, previousUsername);
+    LOG_ERR("HDC", "Authentication succeeded but credentials could not be saved");
+    setLastErrorDetail("Could not save authenticated user to SD card");
+    return HardcoverClient::SERVER_ERROR;
+  }
   return HardcoverClient::OK;
 }
 
@@ -716,10 +723,12 @@ HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressP
 
   if (progressPercent < 0) progressPercent = 0;
   if (progressPercent > 100) progressPercent = 100;
-  int progressPages = progressPercent;
-  if (userBook.pages > 0) {
-    progressPages = (userBook.pages * progressPercent + 50) / 100;
+  if (userBook.pages <= 0) {
+    LOG_ERR("HDC", "Cannot convert progress to pages: Hardcover edition has no page count");
+    setLastErrorDetail("Hardcover edition has no page count; progress was not changed");
+    return API_ERROR;
   }
+  const int progressPages = (userBook.pages * progressPercent + 50) / 100;
 
   char query[320];
   if (userBook.readId > 0) {

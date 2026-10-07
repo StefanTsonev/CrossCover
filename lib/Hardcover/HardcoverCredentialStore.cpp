@@ -5,8 +5,10 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <ObfuscationUtils.h>
+#include <PersistableStore.h>
 
 #include <cstring>
+#include <utility>
 
 HardcoverCredentialStore HardcoverCredentialStore::instance;
 
@@ -72,43 +74,41 @@ std::string normalizeToken(const std::string& token) {
 }  // namespace
 
 bool HardcoverCredentialStore::saveToFile() const {
-  Storage.mkdir("/.crosspoint");
-
   JsonDocument doc;
   doc["apiToken_obf"] = obfuscation::obfuscateToBase64(apiToken);
   doc["userId"] = userId;
   doc["username"] = username;
 
-  String json;
-  serializeJson(doc, json);
-  return Storage.writeFile(HARDCOVER_FILE_JSON, json);
+  return PersistableStoreBase::writeDocToFileAtomically(HARDCOVER_FILE_JSON, doc);
 }
 
 bool HardcoverCredentialStore::loadFromFile() {
-  if (!Storage.exists(HARDCOVER_FILE_JSON)) {
+  const std::string backupPath = std::string(HARDCOVER_FILE_JSON) + ".bak";
+  if (!Storage.exists(HARDCOVER_FILE_JSON) && !Storage.exists(backupPath.c_str())) {
     LOG_DBG("HDC", "No Hardcover credentials file found");
     return false;
   }
 
-  String json = Storage.readFile(HARDCOVER_FILE_JSON);
-  if (json.isEmpty()) return false;
-
   JsonDocument doc;
-  auto error = deserializeJson(doc, json.c_str());
-  if (error) {
-    LOG_ERR("HDC", "Credential JSON parse error: %s", error.c_str());
-    return false;
-  }
+  if (!PersistableStoreBase::readDocFromFile(HARDCOVER_FILE_JSON, doc)) return false;
 
   obfuscation::DecodeStatus status = obfuscation::DecodeStatus::INVALID;
-  apiToken = obfuscation::deobfuscateFromBase64(doc["apiToken_obf"] | "", &status);
-  if (status == obfuscation::DecodeStatus::INVALID || status == obfuscation::DecodeStatus::EMPTY || apiToken.empty()) {
-    apiToken = doc["apiToken"] | std::string("");
-    if (!apiToken.empty()) saveToFile();
+  std::string loadedToken = obfuscation::deobfuscateFromBase64(doc["apiToken_obf"] | "", &status);
+  const bool legacyToken =
+      status == obfuscation::DecodeStatus::INVALID || status == obfuscation::DecodeStatus::EMPTY || loadedToken.empty();
+  if (legacyToken) {
+    loadedToken = doc["apiToken"] | std::string("");
   }
-  apiToken = normalizeToken(apiToken);
-  userId = doc["userId"] | 0;
-  username = doc["username"] | std::string("");
+  loadedToken = normalizeToken(loadedToken);
+  const int loadedUserId = doc["userId"] | 0;
+  const std::string loadedUsername = doc["username"] | std::string("");
+
+  apiToken = loadedToken;
+  userId = loadedUserId;
+  username = loadedUsername;
+  if (legacyToken && !apiToken.empty() && !saveToFile()) {
+    LOG_ERR("HDC", "Could not migrate legacy Hardcover credentials");
+  }
   return true;
 }
 
@@ -133,9 +133,12 @@ bool HardcoverCredentialStore::importTokenFile() {
   if (trimmed.empty()) return false;
 
   if (trimmed != apiToken) {
+    std::string previousToken = apiToken;
     apiToken = trimmed;
     LOG_DBG("HDC", "Imported Hardcover API token from text file");
-    return saveToFile();
+    if (saveToFile()) return true;
+    apiToken = std::move(previousToken);
+    return false;
   }
   return true;
 }
@@ -143,10 +146,18 @@ bool HardcoverCredentialStore::importTokenFile() {
 void HardcoverCredentialStore::setApiToken(const std::string& token) { apiToken = token; }
 
 void HardcoverCredentialStore::clearApiToken() {
+  const std::string previousToken = apiToken;
+  const int previousUserId = userId;
+  const std::string previousUsername = username;
   apiToken.clear();
   userId = 0;
   username.clear();
-  saveToFile();
+  if (!saveToFile()) {
+    apiToken = previousToken;
+    userId = previousUserId;
+    username = previousUsername;
+    LOG_ERR("HDC", "Could not persist cleared Hardcover credentials");
+  }
 }
 
 void HardcoverCredentialStore::setUserInfo(int id, const std::string& name) {

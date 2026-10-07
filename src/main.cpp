@@ -96,6 +96,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
 #include "activities/settings/FontDownloadActivity.h"
+#include "activities/settings/HardcoverAuthActivity.h"
 #include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
 #include "activities/settings/OtaUpdateActivity.h"
@@ -1499,6 +1500,17 @@ void setup() {
           launched = true;
         } else {
           LOG_ERR("MAIN", "OOM: KOReader auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+      case NetworkBootTarget::HARDCOVER_AUTH: {
+        auto authActivity = makeUniqueNoThrow<HardcoverAuthActivity>(renderer, mappedInputManager);
+        if (authActivity) {
+          activityManager.replaceActivity(std::move(authActivity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: Hardcover auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
         }
         break;
