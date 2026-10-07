@@ -176,6 +176,8 @@ jobs:
           token: ${{ secrets.RELEASE_PAT }}
           tag_name: v${{ env.RELEASE_VERSION }}
           target_commitish: ${{ github.sha }}
+          name: CrossCover v${{ env.RELEASE_VERSION }}
+          body_path: .github/release-notes/v${{ env.RELEASE_VERSION }}.md
           draft: true
           files: |
             release-firmware/firmware-x3-x4-v${{ env.RELEASE_VERSION }}.bin
