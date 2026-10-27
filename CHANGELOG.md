@@ -23,6 +23,7 @@
 
 ### Fixed
 
+- Windows builds now apply the configured version globally so boot and Settings cannot fall back to "dev" when source-local build middleware is bypassed.
 - Boot and Settings now display the actual build version instead of a separate hardcoded CrossCover version.
 - Normal X3/X4 builds use the version configured in the project for the displayed version and versioned firmware filename, without requiring a release environment variable.
 - Hardcover now distinguishes queued progress from the current reading position, uses compact result controls, and shows structured book-link confirmation details.

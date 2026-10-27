@@ -227,6 +227,12 @@ def inject_version(env):
         scoped.append(('CROSSINK_VERSION', f'\\"{version_string}\\"'))
         print(f'CrossInk RC build version: {version_string}')
 
+    # The release version is stable across commits and must be visible even
+    # when a framework wrapper bypasses source-local Object overrides on Windows.
+    # Keep only changing Git provenance scoped to BuildInfo.cpp.
+    env.Append(CPPDEFINES=[entry for entry in scoped if entry[0] == 'CROSSINK_VERSION'])
+    scoped = [entry for entry in scoped if entry[0] != 'CROSSINK_VERSION']
+
     # Keep changing source identity out of unrelated compile commands.
     if hasattr(env, 'AddBuildMiddleware'):
         def add_build_info_defines(node_env, node):

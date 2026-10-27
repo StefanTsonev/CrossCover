@@ -1,6 +1,6 @@
 #include <AppVersion.h>
 
-// Only this translation unit receives the changing version and Git defines.
+// The version is a shared build define; changing Git provenance is source-local.
 #ifndef CROSSINK_VERSION
 #define CROSSINK_VERSION "dev"
 #endif
