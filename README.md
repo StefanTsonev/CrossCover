@@ -5,8 +5,9 @@ CrossCover is a personal firmware fork based on [CrossInk](https://github.com/ux
 CrossCover adds Hardcover integration and a LibGen client
 while retaining the CrossInk reader foundation.
 
-Current release: `1.6.1-crosscover.1`
-Based on CrossInk: `1.6.1`
+- Current release: `1.6.1-crosscover.1`
+- Next release, prepared on `main`: `1.6.1-crosscover.2`
+- Based on CrossInk: `1.6.1`
 
 ## Screenshots
 
@@ -29,18 +30,18 @@ Do not flash CrossCover on:
 
 ### Hardcover integration
 
-- Import a Hardcover API key from the SD card
-- Authenticate with Hardcover
-- Link an EPUB manually by Book ID or ISBN
-- Search for a matching Hardcover book automatically
-- Mark a linked book as currently reading
-- Mark a linked book as read
-- Queue reading-progress updates
-- Process pending updates from the Hardcover Library
-- Rate a linked book
-- View a lightweight Hardcover library screen
+- Set up an API key through the local web portal or import it from the SD card
+- Link an EPUB automatically or by Hardcover Book ID or ISBN, then review its account state and edition before confirming
+- Choose Want to read, Reading, Read, Paused, or Did not finish from one status selector
+- Rate books from 0.5 to 5.0 stars in half-star steps
+- Prepare status, progress, and rating changes offline, including before linking a book
+- Review queued changes and discard them individually or together
+- Send only the current book's changes from its reader menu, or process the queue from Hardcover Library
+- Browse Hardcover Library ten books at a time and view book details
 
 Hardcover actions are user-triggered. CrossCover does not run a background sync task or send page-by-page API updates.
+
+The in-book menu shows state saved on the device, including pending changes; it does not fetch live account data every time it opens. Current reading progress and queued progress are shown separately. Sending from a book saves its reading position and restarts into a minimal network session to release reader memory before connecting. Back from the result screen returns to the book.
 
 ### LibGen integration
 
@@ -49,6 +50,9 @@ Hardcover actions are user-triggered. CrossCover does not run a background sync 
 - Display the title, author, year, language, format, file size, and cover when available
 - Return up to 8 EPUB matches from the first 25 LibGen catalog entries
 - Download books directly to the SD card
+- Keep the search text when starting another search, and retry a failed search or download without starting over
+- View the saved file path after downloading and choose Open to start reading
+- Reopen the last completed download from the same results without downloading another copy
 - Choose the download folder from `Settings → System → LibGen Download Folder`
 - Use a lightweight relay so the device receives only compact search results
 
@@ -71,22 +75,33 @@ Search and downloads use the CrossCover Worker relay and LibGen's `ads.php` → 
    Settings → System → Hardcover → Import API Key
    ```
 
-6. Choose `Authenticate`.
+6. Choose `Check connection` and connect to Wi-Fi. A successful check shows `Hardcover is ready`.
+
+Alternatively, open the device's local web portal, go to its Settings page, and save the key in the Hardcover section. Then return to the device and choose `Check connection` in Hardcover settings. Account removal clears the saved key while retaining book links and queued changes.
 
 ## Linking a book to Hardcover
 
 Inside an EPUB, open the reader menu's bookmark-icon tab (`Location`) and choose `Hardcover`, immediately after `Sync Progress` on X3/X4.
 
-Available actions include:
+1. Use `Status`, `Queue current <percent>%`, and `Rate` to prepare the changes you want to send. Ratings use half-star steps. These actions save changes locally.
+2. Choose `Link book`, then `Find and link online` or `Hardcover Book ID or ISBN`. For an already linked book, open `Linked book` to change the link.
+3. Review the matching title, author, existing status, progress, rating, and edition. Confirm links the book and sends its queued changes; Back returns to the candidates.
+4. For later changes, choose `Send changes` when connected or ready to connect. This action appears when the book has pending changes. `Review queued changes` lets you discard selected changes before sending.
+5. Check the completed and pending counts on the result screen. Use Retry if changes remain after a failure, or Back to return to reading.
 
-- `Link Book ID`
-- `Find Automatically`
-- `Mark Currently Reading`
-- `Update Progress`
-- `Mark Read`
-- `Rate`
+Automatic matching searches using the EPUB title and author. Check the selected book and edition before confirming. Progress uses the linked reading edition's page count; a missing edition page count prevents a page-based progress update rather than guessing from another edition. Choosing Read does not automatically force progress to 100%.
 
-Automatic matching searches using the EPUB title and author. Manual Book ID or ISBN linking is safer when accuracy is important.
+For the account library and its pending updates, open `Home → CrossCover → Hardcover Library`.
+
+## Windows simulator
+
+Run `simulator.cmd` from the project directory to test the firmware UI in a desktop window. The first run downloads the portable tools and builds the simulator; later runs open the existing build. Git and PlatformIO's Python environment are required.
+
+- Put test EPUBs in `fs_/books`; this virtual SD card is separate from the reader's SD card.
+- Close the window and run `simulator.cmd --build` after code changes.
+- Press F12 to save screenshots in `.cache/windows-simulator/screenshots`.
+
+See [the simulator guide](docs/simulator.md) for controls and other platforms. The simulator checks layout and navigation; device RAM, TLS, and physical e-ink behavior still need hardware testing.
 
 ## Functionality inherited from CrossInk
 
@@ -146,7 +161,8 @@ CrossCover is an independent personal fork and is not an official CrossInk relea
 - Xteink X3 and X4 only
 - USB-locked devices must not be flashed with CrossCover
 - Automatic Hardcover matching can select an incorrect book
-- Hardcover progress updates are queued, but separate Hardcover reading sessions are not recorded
+- In-book Hardcover data is cached locally; changes made on the website are not fetched automatically when opening the menu
+- Hardcover progress requires a known page count for the selected edition; separate reading-session history is not managed by CrossCover
 - IPA symbols may use readable approximations when the required glyph is not available in the firmware font
 - LibGen search and downloads depend on the availability of the LibGen catalog and its file mirrors
 - The current search flow is limited to EPUB results

@@ -9,6 +9,7 @@
 ### Changed
 
 - Replaced the README device photographs with clean simulator screenshots of boot, Hardcover Library, and LibGen.
+- Updated the README for the redesigned Hardcover setup and book actions, LibGen retry and download flows, and native Windows simulator.
 - Simplified the in-book Hardcover menu with one status selector, progress queueing, remembered ratings, a combined linking flow, and sync limited to the current book.
 - Hardcover book sync now ends with a dedicated result screen, return-to-book and retry actions, and consistently counts individual completed and pending changes, including book linking.
 - Hardcover updates can be prepared before linking and sent in one network session after confirming the matching book and its existing account state. Queued changes can be reviewed and discarded individually.
