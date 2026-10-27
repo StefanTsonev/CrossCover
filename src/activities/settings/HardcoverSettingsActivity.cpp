@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <algorithm>
 
@@ -11,11 +12,13 @@
 #include "HardcoverCredentialStore.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
-const StrId kMenuItems[3] = {StrId::STR_HARDCOVER_API_KEY, StrId::STR_AUTHENTICATE, StrId::STR_CLEAR};
+const StrId kMenuItems[3] = {StrId::STR_HARDCOVER_API_KEY, StrId::STR_HARDCOVER_CHECK_ACCOUNT,
+                             StrId::STR_HARDCOVER_REMOVE_ACCOUNT};
 
 int drawWrappedLineBlock(const GfxRenderer& renderer, const int fontId, const int x, int y, const int maxWidth,
                          const char* text, const int maxLines = 2) {
@@ -48,7 +51,7 @@ void HardcoverSettingsActivity::onExit() {
 
 void HardcoverSettingsActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    finish();
+    finishAfterBackPress();
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -56,11 +59,11 @@ void HardcoverSettingsActivity::loop() {
     return;
   }
   buttonNavigator.onNext([this] {
-    selectedIndex = (selectedIndex + 1) % Count;
+    selectedIndex = (selectedIndex + 1) % (HARDCOVER_STORE.hasApiToken() ? Count : 1);
     requestUpdate();
   });
   buttonNavigator.onPrevious([this] {
-    selectedIndex = (selectedIndex + Count - 1) % Count;
+    selectedIndex = (selectedIndex + Count - 1) % (HARDCOVER_STORE.hasApiToken() ? Count : 1);
     requestUpdate();
   });
 }
@@ -68,49 +71,81 @@ void HardcoverSettingsActivity::loop() {
 void HardcoverSettingsActivity::handleSelection() {
   if (selectedIndex == ImportKey) {
     const bool imported = HARDCOVER_STORE.importTokenFile();
-    GUI.drawPopup(renderer, imported ? tr(STR_HARDCOVER_TOKEN_IMPORTED) : tr(STR_HARDCOVER_TOKEN_MISSING));
+    feedback = imported ? StrId::STR_HARDCOVER_TOKEN_IMPORTED : StrId::STR_HARDCOVER_TOKEN_MISSING;
     requestUpdate();
   } else if (selectedIndex == Authenticate) {
     if (!HARDCOVER_STORE.hasApiToken()) {
-      GUI.drawPopup(renderer, tr(STR_HARDCOVER_TOKEN_MISSING));
+      feedback = StrId::STR_HARDCOVER_TOKEN_MISSING;
       requestUpdate();
       return;
     }
     if (!HARDCOVER_STORE.saveToFile()) {
       LOG_ERR("HDC", "Could not persist API token before minimal authentication boot");
-      GUI.drawPopup(renderer, tr(STR_HARDCOVER_AUTH_START_FAILED));
+      feedback = StrId::STR_HARDCOVER_AUTH_START_FAILED;
       requestUpdate();
       return;
     }
-    silentRestartToNetwork(NetworkBootTarget::HARDCOVER_AUTH);
+    if (bookOrigin) {
+      setResult(HardcoverResult{true});
+      finish();
+    } else
+      silentRestartToNetwork(NetworkBootTarget::HARDCOVER_AUTH, keepNetworkForParent ? 2 : 0);
   } else if (selectedIndex == ClearKey) {
-    HARDCOVER_STORE.clearApiToken();
-    requestUpdate();
+    auto confirm = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_HARDCOVER_REMOVE_ACCOUNT),
+                                                           tr(STR_HARDCOVER_REMOVE_CONFIRM));
+    if (!confirm) {
+      LOG_ERR("HDC", "OOM opening account removal confirmation");
+      feedback = StrId::STR_MEMORY_ERROR;
+      requestUpdate();
+      return;
+    }
+    startActivityForResult(std::move(confirm), [this](const ActivityResult& result) {
+      if (!result.isCancelled) {
+        HARDCOVER_STORE.clearApiToken();
+        feedback =
+            HARDCOVER_STORE.hasApiToken() ? StrId::STR_HARDCOVER_QUEUE_FAILED : StrId::STR_HARDCOVER_ACCOUNT_REMOVED;
+      }
+      selectedIndex = 0;
+      requestUpdate();
+    });
   }
 }
 
 void HardcoverSettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int pageWidth = safe.width;
+  const int pageHeight = safe.y + safe.height;
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_HARDCOVER));
+  GUI.drawHeader(renderer, Rect{safe.x, safe.y + metrics.topPadding, pageWidth, metrics.headerHeight},
+                 tr(STR_HARDCOVER));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentTop = safe.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
   int listTop = contentTop;
+  const char* accountState = !HARDCOVER_STORE.hasApiToken()    ? tr(STR_HARDCOVER_NO_ACCOUNT)
+                             : HARDCOVER_STORE.getUserId() > 0 ? HARDCOVER_STORE.getUsername().c_str()
+                                                               : tr(STR_HARDCOVER_KEY_UNVERIFIED);
+  GUI.drawSubHeader(renderer, Rect{safe.x, listTop, pageWidth, metrics.tabBarHeight}, accountState);
+  listTop += metrics.tabBarHeight + metrics.verticalSpacing;
+  if (feedback != StrId::STR_NONE_OPT) {
+    GUI.drawSubHeader(renderer, Rect{safe.x, listTop, pageWidth, metrics.tabBarHeight}, I18N.get(feedback));
+    listTop += metrics.tabBarHeight + metrics.verticalSpacing;
+  }
   if (!HARDCOVER_STORE.hasApiToken()) {
-    const int textX = metrics.contentSidePadding;
+    const int textX = safe.x + metrics.contentSidePadding;
     const int textWidth = pageWidth - metrics.contentSidePadding * 2;
-    int y = contentTop + 8;
+    int y = listTop + 8;
     y = drawWrappedLineBlock(renderer, UI_10_FONT_ID, textX, y, textWidth, tr(STR_HARDCOVER_SETUP_HINT));
+    y = drawWrappedLineBlock(renderer, UI_10_FONT_ID, textX, y + 4, textWidth, tr(STR_HARDCOVER_TOKEN_PATH));
     y = drawWrappedLineBlock(renderer, UI_10_FONT_ID, textX, y + 4, textWidth, tr(STR_HARDCOVER_SETUP_HINT_2));
     y = drawWrappedLineBlock(renderer, UI_10_FONT_ID, textX, y + 4, textWidth, tr(STR_HARDCOVER_SETUP_HINT_3));
     listTop = y + metrics.verticalSpacing;
   }
   GUI.drawList(
-      renderer, Rect{0, listTop, pageWidth, std::max(0, contentBottom - listTop)}, Count, selectedIndex,
+      renderer, Rect{safe.x, listTop, pageWidth, std::max(0, contentBottom - listTop)},
+      HARDCOVER_STORE.hasApiToken() ? Count : 1, selectedIndex,
       [](int index) { return std::string(I18N.get(kMenuItems[index])); }, nullptr, nullptr,
       [](int index) {
         if (index == ImportKey)
@@ -120,7 +155,9 @@ void HardcoverSettingsActivity::render(RenderLock&&) {
       },
       true);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), HARDCOVER_STORE.hasApiToken() ? tr(STR_DIR_UP) : "",
+                            HARDCOVER_STORE.hasApiToken() ? tr(STR_DIR_DOWN) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

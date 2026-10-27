@@ -22,6 +22,7 @@ class HardcoverCredentialStore {
   bool importTokenFile();
 
   void setApiToken(const std::string& token);
+  bool saveApiToken(const std::string& token);
   const std::string& getApiToken() const { return apiToken; }
   bool hasApiToken() const { return !apiToken.empty(); }
   void clearApiToken();

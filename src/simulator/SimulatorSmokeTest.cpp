@@ -3,6 +3,7 @@
 #include "SimulatorSmokeTest.h"
 
 #include <Epub.h>
+#include <HalDisplay.h>
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
@@ -347,7 +348,7 @@ class SimulatorSmokeTest {
     if (!output) return;
     std::filesystem::create_directories(output);
     const auto path = std::filesystem::path(output) / (std::string(name) + ".pgm");
-    FILE* image = std::fopen(path.c_str(), "wb");
+    FILE* image = std::fopen(path.string().c_str(), "wb");
     if (!image) fail("Cannot create status bar capture");
     const int width = renderer.getScreenWidth();
     const int height = renderer.getScreenHeight();
@@ -907,6 +908,14 @@ class SimulatorSmokeTest {
     if (activityManager.requestUpdateAndWait() != RequestUpdateResult::Rendered) {
       fail("Render was rejected for %s", name);
     }
+#ifdef _WIN32
+    // Windows simulator-only visual audit: capture the completed SDL frame,
+    // including grayscale and orientation, through its main-thread screenshot API.
+    if (std::getenv("CROSSINK_SIMULATOR_SMOKE_VISUAL_AUDIT")) {
+      display.requestScreenshot();
+      display.presentIfNeeded();
+    }
+#endif
   }
 
   void queueStep(const char* name, SmokeStep nextStep, int framesToSettle = 3) {
@@ -1960,7 +1969,7 @@ class SimulatorSmokeTest {
         }
         if (const char* outputDir = std::getenv("CROSSINK_SIMULATOR_SMOKE_FRONTLIGHT_CAPTURES")) {
           const auto path = std::filesystem::path(outputDir) / (std::to_string(frontlightLayoutPass) + ".pgm");
-          FILE* image = std::fopen(path.c_str(), "wb");
+          FILE* image = std::fopen(path.string().c_str(), "wb");
           if (!image) fail("Cannot create frontlight layout capture");
           RenderLock lock;
           const int width = renderer.getScreenWidth();
@@ -2748,7 +2757,7 @@ class SimulatorSmokeTest {
           const auto path = std::filesystem::path(outputDir) / (unavailable                  ? "sync-no-book.pgm"
                                                                 : SETTINGS.trackReadingStats ? "sync-stats-on.pgm"
                                                                                              : "sync-stats-off.pgm");
-          FILE* image = std::fopen(path.c_str(), "wb");
+          FILE* image = std::fopen(path.string().c_str(), "wb");
           if (!image) fail("Cannot create sync menu capture");
           RenderLock lock;
           const int width = renderer.getScreenWidth();

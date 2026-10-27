@@ -1,5 +1,11 @@
 #pragma once
 
+#ifndef __cplusplus
+// Windows resolves third-party C includes of <memory.h> to this file because
+// its filesystem is case-insensitive. Supply the standard C memory declarations.
+#include <string.h>
+#else
+
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -151,6 +157,11 @@ inline HeapByteBuffer makeAlignedByteBufferNoThrow(const size_t count, const Mem
     void* ptr = nullptr;
     if (::posix_memalign(&ptr, alignment, alignedCount) != 0) return {};
     return HeapByteBuffer(static_cast<uint8_t*>(ptr));
+#elif defined(_WIN32)
+    // Windows malloc provides natural alignment and remains compatible with
+    // HeapByteBuffer's free deleter; _aligned_malloc requires a different one.
+    static_assert(alignof(std::max_align_t) <= (sizeof(void*) == 8 ? 16 : 8));
+    return HeapByteBuffer(static_cast<uint8_t*>(std::malloc(alignedCount)));
 #else
     return HeapByteBuffer(static_cast<uint8_t*>(std::aligned_alloc(alignment, alignedCount)));
 #endif
@@ -233,3 +244,4 @@ struct [[nodiscard]] ScopedCleanup final {
 
 template <typename F>
 ScopedCleanup(F) -> ScopedCleanup<F>;
+#endif  // __cplusplus

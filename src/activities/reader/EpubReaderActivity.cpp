@@ -46,6 +46,7 @@
 #include "FocusReadingText.h"
 #include "GlobalActions.h"
 #include "HardcoverBookActivity.h"
+#include "activities/home/HardcoverLibraryActivity.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "LookedUpWordsActivity.h"
@@ -5667,7 +5668,31 @@ void EpubReaderActivity::openHardcoverMenu() {
       std::make_unique<HardcoverBookActivity>(renderer, mappedInput, epub ? epub->getPath() : std::string{},
                                               epub ? epub->getTitle() : std::string{},
                                               epub ? epub->getAuthor() : std::string{}, progressPercent),
-      [this](const ActivityResult&) { requestUpdate(); });
+      [this](const ActivityResult& result) {
+        const auto* sync = std::get_if<HardcoverResult>(&result.data);
+        if (!result.isCancelled && sync && epub) {
+          if (!saveReadingProgress()) {
+            LOG_ERR("HDC", "Aborting book sync because reader progress could not be saved");
+            drawToast(renderer, tr(STR_SAVE_PROGRESS_FAILED));
+            requestUpdate();
+            return;
+          }
+          auto handoff = makeUniqueNoThrow<HardcoverLibraryActivity>(
+              renderer, mappedInput, epub->getPath(),
+              sync->authenticate ? HardcoverLibraryActivity::Mode::RestartForBookAuth
+                                 : HardcoverLibraryActivity::Mode::RestartForBookSync);
+          if (!handoff) {
+            LOG_ERR("HDC", "OOM creating book sync handoff");
+            drawToast(renderer, tr(STR_MEMORY_ERROR));
+            requestUpdate();
+            return;
+          }
+          pauseReadingPaceTimer("hardcover_sync");
+          activityManager.replaceActivity(std::move(handoff));
+          return;
+        }
+        requestUpdate();
+      });
 }
 
 void EpubReaderActivity::showCompletedFeedback(bool isCompleted) {

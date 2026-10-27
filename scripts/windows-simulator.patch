@@ -1,0 +1,1309 @@
+diff --git a/run_simulator_project.py b/run_simulator_project.py
+index 3dffdc3..78ee1a3 100644
+--- a/run_simulator_project.py
++++ b/run_simulator_project.py
+@@ -13,6 +13,14 @@ same launcher script to be loaded twice.
+ 
+ Import("env")  # noqa: F821 - SCons injects this at build time
+ import builtins
++import os
++
++if os.name == "nt":
++    # GCC 16 defaults to C23; the upstream QRCode C API uses C11 bool typedefs.
++    env.Append(CFLAGS=["-std=gnu11"])
++    for library in env.GetLibBuilders():
++        if library.name == "QRCode":
++            library.env.Append(CFLAGS=["-std=gnu11"])
+ 
+ RUN_SIMULATOR_TARGET_KEY = "_crosspoint_run_simulator_target_registered"
+ SIMULATOR_HTTP_PORT_OPTION = "custom_simulator_http_port"
+diff --git a/src/BoardConfig.h b/src/BoardConfig.h
+index e65c740..fd8b584 100644
+--- a/src/BoardConfig.h
++++ b/src/BoardConfig.h
+@@ -43,6 +43,10 @@
+ #endif
+ 
+ namespace BoardConfig {
++#define FREEINK_MCU_C3 (FREEINK_DEVICE_X3 || FREEINK_DEVICE_X4)
++#define FREEINK_MCU_S3 (FREEINK_DEVICE_STICKY || FREEINK_DEVICE_X4PRO)
++#define FREEINK_MCU_C61 0
++#define FREEINK_MCU_ESP32 0
+ 
+ enum class Board {
+   XteinkX4,
+diff --git a/src/CrossPointWebServer.cpp b/src/CrossPointWebServer.cpp
+index 6b8bf4c..2da223a 100644
+--- a/src/CrossPointWebServer.cpp
++++ b/src/CrossPointWebServer.cpp
+@@ -1,14 +1,10 @@
++#include "SimulatorSockets.h"
+ #ifndef CROSSPOINT_SIMULATOR_PROJECT_WEBSERVER
+ 
+ #include <HalStorage.h>
+ #include <Logging.h>
+ #include <WiFi.h>
+-#include <arpa/inet.h>
+ #include <fcntl.h>
+-#include <netinet/in.h>
+-#include <sys/select.h>
+-#include <sys/socket.h>
+-#include <sys/time.h>
+ #include <unistd.h>
+ 
+ #include <algorithm>
+@@ -54,7 +50,7 @@ struct Request {
+ 
+ struct NativeServerState {
+   std::atomic<bool> active{false};
+-  int fd = -1;
++  SimSocket fd = -1;
+   std::thread worker;
+   mutable std::mutex uploadMutex;
+   CrossPointWebServer::WsUploadStatus uploadStatus;
+@@ -190,7 +186,7 @@ std::string parentOf(const std::string &path) {
+   return path.substr(0, slash);
+ }
+ 
+-bool sendAll(int client, const void *data, size_t len) {
++bool sendAll(SimSocket client, const void *data, size_t len) {
+   const auto *ptr = static_cast<const char *>(data);
+   while (len > 0) {
+     const ssize_t written = send(client, ptr, len, 0);
+@@ -202,11 +198,11 @@ bool sendAll(int client, const void *data, size_t len) {
+   return true;
+ }
+ 
+-bool sendAll(int client, const std::string &data) {
++bool sendAll(SimSocket client, const std::string &data) {
+   return sendAll(client, data.data(), data.size());
+ }
+ 
+-void sendResponse(int client, int status, const std::string &type,
++void sendResponse(SimSocket client, int status, const std::string &type,
+                   const std::string &body,
+                   const std::string &extraHeaders = "") {
+   const char *reason = "OK";
+@@ -265,7 +261,7 @@ std::map<std::string, std::string> parseQuery(const std::string &query) {
+   return out;
+ }
+ 
+-bool parseRequest(int client, Request &req) {
++bool parseRequest(SimSocket client, Request &req) {
+   std::string raw;
+   char buffer[8192];
+   while (raw.find("\r\n\r\n") == std::string::npos) {
+@@ -689,7 +685,7 @@ load().catch(e=>alert(e.message));
+ </html>)HTML";
+ }
+ 
+-void handleDownload(int client, const std::string &path) {
++void handleDownload(SimSocket client, const std::string &path) {
+   if (path.empty() || path == "/" || isProtectedPath(path) ||
+       !Storage.exists(path.c_str())) {
+     sendResponse(client, 404, "text/plain", "Not found");
+@@ -719,7 +715,7 @@ void handleDownload(int client, const std::string &path) {
+   file.close();
+ }
+ 
+-void handleDownloadHead(int client, const std::string &path, HalFile &file) {
++void handleDownloadHead(SimSocket client, const std::string &path, HalFile &file) {
+   std::ostringstream headers;
+   headers << "HTTP/1.1 200 OK\r\n"
+           << "Content-Length: " << file.size() << "\r\n"
+@@ -732,7 +728,7 @@ void handleDownloadHead(int client, const std::string &path, HalFile &file) {
+ }
+ 
+ void handleClientRequest(CrossPointWebServer *owner, NativeServerState &state,
+-                         int client) {
++                         SimSocket client) {
+   Request req;
+   if (!parseRequest(client, req) || req.path.empty()) {
+     sendResponse(client, 400, "text/plain", "Bad request");
+@@ -987,11 +983,11 @@ void acceptLoop(CrossPointWebServer *owner, NativeServerState *state) {
+ 
+     sockaddr_in addr{};
+     socklen_t len = sizeof(addr);
+-    int client = accept(state->fd, reinterpret_cast<sockaddr *>(&addr), &len);
++    SimSocket client = accept(state->fd, reinterpret_cast<sockaddr *>(&addr), &len);
+     if (client < 0)
+       continue;
+     timeval readTimeout{5, 0};
+-    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &readTimeout,
++    simSetSocketOpt(client, SOL_SOCKET, SO_RCVTIMEO, &readTimeout,
+                sizeof(readTimeout));
+     handleClientRequest(owner, *state, client);
+     close(client);
+@@ -1015,7 +1011,7 @@ void CrossPointWebServer::begin() {
+   }
+ 
+   int yes = 1;
+-  setsockopt(state->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
++  simSetSocketOpt(state->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+ 
+   sockaddr_in addr{};
+   addr.sin_family = AF_INET;
+diff --git a/src/HalDisplay.cpp b/src/HalDisplay.cpp
+index 7edf12b..42ec46d 100644
+--- a/src/HalDisplay.cpp
++++ b/src/HalDisplay.cpp
+@@ -8,13 +8,17 @@
+ #include <atomic>
+ #include <cstdlib>
+ #include <cstring>
++#include <filesystem>
+ #include <iostream>
+ #include <string>
++#include <thread>
+ #include <vector>
+ 
+ #include "SimulatorInput.h"
+ 
+ static SDL_Window *window = nullptr;
++static std::thread::id sdlMainThread;
++static std::atomic<bool> screenshotRequested{false};
+ static SDL_Renderer *sdl_renderer = nullptr;
+ static SDL_Texture *texture = nullptr;
+ // Render the simulator at full panel size. The previous 0.5x window was too
+@@ -326,6 +330,7 @@ static constexpr const char *WINDOW_TITLE = "Simulator - XTEINK X4";
+ #endif
+ 
+ void HalDisplay::begin() {
++  sdlMainThread = std::this_thread::get_id();
+   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+     std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError()
+               << std::endl;
+@@ -343,6 +348,12 @@ void HalDisplay::begin() {
+                             SDL_WINDOWPOS_UNDEFINED, winW, winH,
+                             SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+   sdl_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
++  if (!sdl_renderer) sdl_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
++  if (!sdl_renderer) {
++    std::cerr << "SDL renderer could not initialize: " << SDL_GetError() << std::endl;
++    quitRequested.store(true);
++    return;
++  }
+ 
+   // Keep all rendering logic in logical (winW×winH) coordinates; SDL maps to
+   // drawable pixels.
+@@ -436,11 +447,15 @@ void HalDisplay::refreshDisplay(RefreshMode /*mode*/, bool /*turnOffScreen*/) {
+   const uint8_t *fb = getFrameBuffer();
+   snapshotBwBase(fb);
+   renderBwPixels(fb);
++  // setup() draws Boot before entering the main loop. Present that real frame
++  // immediately when already on SDL's main thread; render tasks remain deferred.
++  if (std::this_thread::get_id() == sdlMainThread) presentIfNeeded();
+ }
+ 
+ // Called from the main thread (simulator_main.cpp) to push pixels to SDL.
+ void HalDisplay::presentIfNeeded() {
+-  const bool screenshotDue = hasDueScreenshot();
++  const bool manualScreenshot = screenshotRequested.exchange(false);
++  const bool screenshotDue = hasDueScreenshot() || manualScreenshot;
+   if (!pendingPresent.load() && !screenshotDue)
+     return;
+   pendingPresent.store(false);
+@@ -504,10 +519,19 @@ void HalDisplay::presentIfNeeded() {
+   if (screenshotDue) {
+     captureDueScreenshots();
+   }
++  if (manualScreenshot) {
++    const char* configured = std::getenv("CROSSPOINT_SIM_SCREENSHOT_DIR");
++    const std::filesystem::path directory = configured && *configured ? configured : ".cache/windows-simulator/screenshots";
++    std::error_code error;
++    std::filesystem::create_directories(directory, error);
++    if (!error) saveRendererBmp((directory / ("screen-" + std::to_string(millis()) + ".bmp")).string());
++    else std::cerr << "[SIM] Cannot create screenshot directory: " << error.message() << std::endl;
++  }
+   SDL_RenderPresent(sdl_renderer);
+ }
+ 
+ bool HalDisplay::shouldQuit() const { return quitRequested.load(); }
++void HalDisplay::requestScreenshot() { screenshotRequested.store(true); }
+ 
+ void HalDisplay::deepSleep() { presentIfNeeded(); }
+ 
+diff --git a/src/HalDisplay.h b/src/HalDisplay.h
+index 7a0bbf3..4e2a9c4 100644
+--- a/src/HalDisplay.h
++++ b/src/HalDisplay.h
+@@ -89,6 +89,7 @@ public:
+ 
+   // Simulator only: call from main thread to push rendered pixels to SDL.
+   void presentIfNeeded();
++  void requestScreenshot();
+   // Simulator only: returns true once a hard shutdown has been requested.
+   bool shouldQuit() const;
+ 
+diff --git a/src/HalGPIO.cpp b/src/HalGPIO.cpp
+index 73c7054..0fcc9e7 100644
+--- a/src/HalGPIO.cpp
++++ b/src/HalGPIO.cpp
+@@ -88,6 +88,7 @@ enum class SyntheticAction {
+   HomeDown,
+   HomeUp,
+   Sleep,
++  Screenshot,
+   Quit
+ };
+ 
+@@ -331,6 +332,8 @@ void initializeSyntheticEvents() {
+                                           : secondColon - firstColon - 1));
+       if (key == "QUIT") {
+         syntheticEvents.push_back({atMs, SyntheticAction::Quit});
++      } else if (key == "F12" || key == "SCREENSHOT") {
++        syntheticEvents.push_back({atMs, SyntheticAction::Screenshot});
+       } else if (key == "S" || key == "SLEEP") {
+         syntheticEvents.push_back({atMs, SyntheticAction::Sleep});
+       } else if (key == "HOME") {
+@@ -417,6 +420,9 @@ void processSyntheticEvents() {
+     case SyntheticAction::Sleep:
+       requestSimulatorSleep();
+       break;
++    case SyntheticAction::Screenshot:
++      display.requestScreenshot();
++      break;
+     case SyntheticAction::Quit:
+       quitRequested.store(true);
+       break;
+@@ -512,6 +518,10 @@ void HalGPIO::update() {
+     if (e.type == SDL_QUIT) {
+       quitRequested.store(true);
+     } else if (e.type == SDL_KEYDOWN && !e.key.repeat) {
++      if (e.key.keysym.scancode == SDL_SCANCODE_F12) {
++        display.requestScreenshot();
++        continue;
++      }
+       if (e.key.keysym.scancode == HOME_KEY_SCANCODE) {
+         beginHomeKey();
+         continue;
+diff --git a/src/HalGPIO.h b/src/HalGPIO.h
+index 220d995..48ea470 100644
+--- a/src/HalGPIO.h
++++ b/src/HalGPIO.h
+@@ -68,6 +68,7 @@ public:
+   unsigned long getHeldTime() const;
+   unsigned long getPowerButtonHeldTime() const;
+   bool hasTouch() const;
++  constexpr bool supportsMultiTouch() const { return false; }
+   bool hasHomeKey() const;
+   bool wasHomeKeyPressed() const;
+   bool wasHomeKeyTapped() const;
+diff --git a/src/HalStorage.cpp b/src/HalStorage.cpp
+index 23d2807..6bc2c8f 100644
+--- a/src/HalStorage.cpp
++++ b/src/HalStorage.cpp
+@@ -1,4 +1,5 @@
+ #include "HalStorage.h"
++#include "WindowsHostCompat.h"
+ 
+ #include <dirent.h>
+ #include <fcntl.h>
+@@ -71,10 +72,10 @@ bool ensureParentDirectories(const std::string &full) {
+   }
+   for (size_t i = 1; i < parent.size(); ++i) {
+     if (parent[i] == '/') {
+-      ::mkdir(parent.substr(0, i).c_str(), 0777);
++      simMkdir(parent.substr(0, i).c_str(), 0777);
+     }
+   }
+-  return ::mkdir(parent.c_str(), 0777) == 0 || errno == EEXIST;
++  return simMkdir(parent.c_str(), 0777) == 0 || errno == EEXIST;
+ }
+ } // namespace
+ 
+@@ -82,10 +83,10 @@ bool HalStorage::begin() {
+   const std::string root = configuredStorageRoot();
+   for (size_t i = 1; i < root.size(); ++i) {
+     if (root[i] == '/') {
+-      ::mkdir(root.substr(0, i).c_str(), 0777);
++      simMkdir(root.substr(0, i).c_str(), 0777);
+     }
+   }
+-  return ::mkdir(root.c_str(), 0777) == 0 || errno == EEXIST;
++  return simMkdir(root.c_str(), 0777) == 0 || errno == EEXIST;
+ }
+ bool HalStorage::ready() const { return true; }
+ 
+@@ -100,6 +101,10 @@ public:
+     // The simulator's FsApiConstants.h just includes <fcntl.h> and typedef int
+     // oflag_t, so all O_* constants are already native POSIX values — pass them
+     // straight through.
++#ifdef _WIN32
++    // Text mode translates CR/LF and treats 0x1a as EOF, corrupting EPUB/cache bytes.
++    flags |= O_BINARY;
++#endif
+     fd = ::open(path.c_str(), flags, 0666);
+     if (fd < 0) {
+       fprintf(stderr, "[SIM] open failed: %s (flags=0x%x errno=%d %s)\n",
+@@ -139,12 +144,12 @@ HalFile &HalFile::operator=(HalFile &&other) {
+ 
+ void HalFile::flush() {
+   if (impl && impl->fd >= 0)
+-    fsync(impl->fd);
++    simFsync(impl->fd);
+ }
+ bool HalFile::sync() {
+   if (!impl || impl->fd < 0)
+     return false;
+-  return fsync(impl->fd) == 0;
++  return simFsync(impl->fd) == 0;
+ }
+ size_t HalFile::getName(char *name, size_t len) {
+   if (!impl || impl->path.empty())
+@@ -166,8 +171,21 @@ size_t HalFile::size() {
+   return end < 0 ? 0 : (size_t)end;
+ }
+ size_t HalFile::fileSize() { return size(); }
++uint32_t HalFile::creationTime() {
++  struct stat info{};
++  return impl && ::stat(impl->path.c_str(), &info) == 0 ? static_cast<uint32_t>(info.st_ctime) : 0;
++}
++uint32_t HalFile::modificationTime() {
++  struct stat info{};
++  return impl && ::stat(impl->path.c_str(), &info) == 0 ? static_cast<uint32_t>(info.st_mtime) : 0;
++}
+ uint64_t HalFile::fileSize64() { return size(); }
+ bool HalFile::seek(size_t pos) {
++  if (impl && impl->dir) {
++    if (pos > static_cast<size_t>(std::numeric_limits<long>::max())) return false;
++    seekdir(impl->dir, static_cast<long>(pos));
++    return telldir(impl->dir) == static_cast<long>(pos);
++  }
+   if (!impl || impl->fd < 0)
+     return false;
+   return lseek(impl->fd, (off_t)pos, SEEK_SET) >= 0;
+@@ -185,9 +203,7 @@ bool HalFile::seekCur(int64_t offset) {
+   return lseek(impl->fd, (off_t)offset, SEEK_CUR) >= 0;
+ }
+ bool HalFile::seekSet(size_t offset) {
+-  if (!impl || impl->fd < 0)
+-    return false;
+-  return lseek(impl->fd, (off_t)offset, SEEK_SET) >= 0;
++  return seek(offset);
+ }
+ int HalFile::available() const {
+   if (!impl || impl->fd < 0)
+@@ -198,6 +214,10 @@ int HalFile::available() const {
+   return (int)(end - cur);
+ }
+ size_t HalFile::position() const {
++  if (impl && impl->dir) {
++    const long pos = telldir(impl->dir);
++    return pos < 0 ? 0 : static_cast<size_t>(pos);
++  }
+   if (!impl || impl->fd < 0)
+     return 0;
+   off_t pos = lseek(impl->fd, 0, SEEK_CUR);
+@@ -319,11 +339,11 @@ bool HalStorage::mkdir(const char *path, const bool /*pFlag*/) {
+   // Create all intermediate directories (mkdir -p semantics).
+   for (size_t i = 1; i < full.size(); ++i) {
+     if (full[i] == '/') {
+-      ::mkdir(full.substr(0, i).c_str(),
++      simMkdir(full.substr(0, i).c_str(),
+               0777); // ignore errors (may already exist)
+     }
+   }
+-  return ::mkdir(full.c_str(), 0777) == 0 || errno == EEXIST;
++  return simMkdir(full.c_str(), 0777) == 0 || errno == EEXIST;
+ }
+ bool HalStorage::exists(const char *path) {
+   std::string full = resolveStoragePath(path);
+diff --git a/src/HalStorage.h b/src/HalStorage.h
+index 771579f..9f46e1d 100644
+--- a/src/HalStorage.h
++++ b/src/HalStorage.h
+@@ -18,6 +18,8 @@ class HalStorage {
+ public:
+   HalStorage();
+   bool begin();
++  // Host files have no powered SD controller to stop before simulated sleep.
++  void shutdown() {}
+   bool ready() const;
+   std::vector<String> listFiles(const char *path = "/", int maxFiles = 200);
+   // Read the entire file at `path` into a String. Returns empty string on
+@@ -87,6 +89,9 @@ public:
+   HalFile &operator=(const HalFile &) = delete;
+ 
+   void flush() override;
++  bool allocationFailed() const { return !impl; }
++  uint32_t creationTime();
++  uint32_t modificationTime();
+   size_t getName(char *name, size_t len);
+   size_t size();
+   size_t fileSize();
+diff --git a/src/MD5Builder.h b/src/MD5Builder.h
+index 37a551d..1296e1a 100644
+--- a/src/MD5Builder.h
++++ b/src/MD5Builder.h
+@@ -1,6 +1,8 @@
+ #pragma once
+ 
+-#if defined(__APPLE__)
++#if defined(_WIN32)
++#include "MD5Builder_windows.h"
++#elif defined(__APPLE__)
+ #include "MD5Builder_mac.h"
+ #elif defined(__linux__)
+ #include "MD5Builder_linux.h"
+diff --git a/src/NetworkClient.cpp b/src/NetworkClient.cpp
+index 345b29d..6e1b47b 100644
+--- a/src/NetworkClient.cpp
++++ b/src/NetworkClient.cpp
+@@ -1,7 +1,6 @@
++#include "SimulatorSockets.h"
+ #include "NetworkClient.h"
+ 
+-#include <netdb.h>
+-#include <sys/socket.h>
+ #include <unistd.h>
+ 
+ #include <cerrno>
+@@ -11,16 +10,16 @@
+ #include "Stream.h"
+ 
+ struct NetworkClient::Impl {
+-  explicit Impl(int socketFd) : fd(socketFd) {}
++  explicit Impl(SimSocket socketFd) : fd(socketFd) {}
+   ~Impl() {
+     if (fd >= 0)
+-      ::close(fd);
++      simCloseSocket(fd);
+   }
+ 
+-  int fd = -1;
++  SimSocket fd = -1;
+ };
+ 
+-NetworkClient::NetworkClient(int fd) : impl_(std::make_shared<Impl>(fd)) {}
++NetworkClient::NetworkClient(SimSocket fd) : impl_(std::make_shared<Impl>(fd)) {}
+ 
+ int NetworkClient::connect(const char *host, uint16_t port) {
+   if (!host || host[0] == '\0')
+@@ -37,14 +36,14 @@ int NetworkClient::connect(const char *host, uint16_t port) {
+   if (getaddrinfo(host, service, &hints, &results) != 0)
+     return 0;
+ 
+-  int fd = -1;
++  SimSocket fd = -1;
+   for (addrinfo *addr = results; addr != nullptr; addr = addr->ai_next) {
+-    fd = ::socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
++    fd = simOpenSocket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+     if (fd < 0)
+       continue;
+     if (::connect(fd, addr->ai_addr, addr->ai_addrlen) == 0)
+       break;
+-    ::close(fd);
++    simCloseSocket(fd);
+     fd = -1;
+   }
+   freeaddrinfo(results);
+@@ -73,7 +72,7 @@ size_t NetworkClient::write(const uint8_t *buf, size_t size) {
+ #endif
+   while (writtenTotal < size) {
+     const ssize_t written =
+-        ::send(impl_->fd, buf + writtenTotal, size - writtenTotal, sendFlags);
++        simSend(impl_->fd, buf + writtenTotal, size - writtenTotal, sendFlags);
+     if (written <= 0)
+       break;
+     writtenTotal += static_cast<size_t>(written);
+@@ -104,7 +103,7 @@ size_t NetworkClient::write(Stream &stream) {
+ 
+ void NetworkClient::stop() {
+   if (impl_ && impl_->fd >= 0) {
+-    ::close(impl_->fd);
++    simCloseSocket(impl_->fd);
+     impl_->fd = -1;
+   }
+ }
+diff --git a/src/NetworkClient.h b/src/NetworkClient.h
+index b6766f7..3d10caf 100644
+--- a/src/NetworkClient.h
++++ b/src/NetworkClient.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "SimulatorSockets.h"
+ 
+ #include <cstddef>
+ #include <cstdint>
+@@ -11,7 +12,7 @@ class Stream;
+ class NetworkClient {
+ public:
+   NetworkClient() {}
+-  explicit NetworkClient(int fd);
++  explicit NetworkClient(SimSocket fd);
+   virtual ~NetworkClient() {}
+   virtual int connect(const char *host, uint16_t port);
+   virtual size_t write(const uint8_t *buf, size_t size);
+diff --git a/src/SimHttpFetch.h b/src/SimHttpFetch.h
+index 8d8c9d9..4d46af0 100644
+--- a/src/SimHttpFetch.h
++++ b/src/SimHttpFetch.h
+@@ -9,9 +9,15 @@
+ 
+ #include <dirent.h>
+ #include <sys/stat.h>
++#ifndef _WIN32
+ #include <sys/wait.h>
++#endif
+ #include <unistd.h>
+ 
++#ifdef _WIN32
++#include "WindowsHttpFetch.h"
++#endif
++
+ namespace sim_http_fetch {
+ 
+ struct Response {
+@@ -188,6 +194,9 @@ inline bool fetchWithCurl(const std::string &url, const char *method,
+                           const std::map<std::string, std::string> &headers,
+                           const std::string &basicAuth, const char *body,
+                           Response &out) {
++  #ifdef _WIN32
++  return windowsHttpFetch(url, method, headers, basicAuth, body, out);
++  #else
+   char tmpTemplate[] = "/tmp/crosspoint-sim-http-XXXXXX";
+   int fd = mkstemp(tmpTemplate);
+   if (fd < 0)
+@@ -231,6 +240,7 @@ inline bool fetchWithCurl(const std::string &url, const char *method,
+ 
+   out.statusCode = std::atoi(statusText.c_str());
+   return rc == 0 || out.statusCode > 0 || !out.body.empty();
++  #endif
+ }
+ 
+ inline bool fetch(const std::string &url, const char *method,
+diff --git a/src/WebServer.cpp b/src/WebServer.cpp
+index a9c48ba..fbaf1c5 100644
+--- a/src/WebServer.cpp
++++ b/src/WebServer.cpp
+@@ -1,12 +1,9 @@
++#include "SimulatorSockets.h"
+ #include "WebServer.h"
+ 
+ #include "SimulatorNetworkPorts.h"
+ #include <Logging.h>
+-#include <arpa/inet.h>
+ #include <fcntl.h>
+-#include <netinet/in.h>
+-#include <sys/socket.h>
+-#include <sys/time.h>
+ #include <unistd.h>
+ 
+ #include <algorithm>
+@@ -157,7 +154,7 @@ void parseArgs(const std::string &encoded,
+   }
+ }
+ 
+-bool sendAll(int client, const void *data, size_t len) {
++bool sendAll(SimSocket client, const void *data, size_t len) {
+   const auto *ptr = static_cast<const char *>(data);
+ #ifdef MSG_NOSIGNAL
+   constexpr int sendFlags = MSG_NOSIGNAL;
+@@ -165,7 +162,7 @@ bool sendAll(int client, const void *data, size_t len) {
+   constexpr int sendFlags = 0;
+ #endif
+   while (len > 0) {
+-    const ssize_t written = ::send(client, ptr, len, sendFlags);
++    const ssize_t written = simSend(client, ptr, len, sendFlags);
+     if (written <= 0)
+       return false;
+     ptr += written;
+@@ -174,7 +171,7 @@ bool sendAll(int client, const void *data, size_t len) {
+   return true;
+ }
+ 
+-void sendSimpleResponse(int client, int code, const char *message) {
++void sendSimpleResponse(SimSocket client, int code, const char *message) {
+   const char *body = message ? message : "";
+   std::ostringstream out;
+   out << "HTTP/1.1 " << code << " " << reasonForStatus(code) << "\r\n"
+@@ -185,14 +182,14 @@ void sendSimpleResponse(int client, int code, const char *message) {
+   sendAll(client, out.str().data(), out.str().size());
+ }
+ 
+-void setSocketTimeouts(int client) {
++void setSocketTimeouts(SimSocket client) {
+   timeval timeout{};
+   timeout.tv_sec = 5;
+-  setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+-  setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
++  simSetSocketOpt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
++  simSetSocketOpt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+ #ifdef SO_NOSIGPIPE
+   int yes = 1;
+-  setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
++  simSetSocketOpt(client, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
+ #endif
+ }
+ 
+@@ -278,7 +275,7 @@ struct WebServer::Impl {
+       : port(crosspoint_simulator::mapFirmwarePort(serverPort)) {}
+ 
+   int port;
+-  int fd = -1;
++  SimSocket fd = -1;
+   std::atomic<bool> active{false};
+   std::thread worker;
+   std::vector<Route> routes;
+@@ -286,7 +283,7 @@ struct WebServer::Impl {
+   std::function<void()> notFoundHandler;
+   std::vector<String> collectedHeaders;
+ 
+-  int currentClient = -1;
++  SimSocket currentClient = -1;
+   HTTPMethod currentMethod = HTTP_GET;
+   String currentUri = "/";
+   std::vector<std::pair<String, String>> currentArgs;
+@@ -421,14 +418,14 @@ void WebServer::begin() {
+   if (impl_->active)
+     return;
+ 
+-  impl_->fd = ::socket(AF_INET, SOCK_STREAM, 0);
++  impl_->fd = simOpenSocket(AF_INET, SOCK_STREAM, 0);
+   if (impl_->fd < 0) {
+     LOG_ERR("WEB", "[SIM] WebServer socket failed: %s", strerror(errno));
+     return;
+   }
+ 
+   int yes = 1;
+-  setsockopt(impl_->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
++  simSetSocketOpt(impl_->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+ 
+   sockaddr_in addr{};
+   addr.sin_family = AF_INET;
+@@ -438,13 +435,13 @@ void WebServer::begin() {
+       0) {
+     LOG_ERR("WEB", "[SIM] WebServer bind 127.0.0.1:%d failed: %s", impl_->port,
+             strerror(errno));
+-    ::close(impl_->fd);
++    simCloseSocket(impl_->fd);
+     impl_->fd = -1;
+     return;
+   }
+   if (::listen(impl_->fd, 16) != 0) {
+     LOG_ERR("WEB", "[SIM] WebServer listen failed: %s", strerror(errno));
+-    ::close(impl_->fd);
++    simCloseSocket(impl_->fd);
+     impl_->fd = -1;
+     return;
+   }
+@@ -452,7 +449,7 @@ void WebServer::begin() {
+   impl_->active = true;
+   impl_->worker = std::thread([this] {
+     while (impl_->active) {
+-      const int client = ::accept(impl_->fd, nullptr, nullptr);
++      const SimSocket client = simAcceptSocket(impl_->fd, nullptr, nullptr);
+       if (client < 0) {
+         if (impl_->active)
+           LOG_ERR("WEB", "[SIM] WebServer accept failed: %s", strerror(errno));
+@@ -463,7 +460,7 @@ void WebServer::begin() {
+       std::string raw;
+       char buffer[8192];
+       while (raw.find("\r\n\r\n") == std::string::npos) {
+-        const ssize_t got = ::recv(client, buffer, sizeof(buffer), 0);
++        const ssize_t got = simRecv(client, buffer, sizeof(buffer), 0);
+         if (got <= 0)
+           break;
+         raw.append(buffer, static_cast<size_t>(got));
+@@ -473,7 +470,7 @@ void WebServer::begin() {
+ 
+       const size_t headerEnd = raw.find("\r\n\r\n");
+       if (headerEnd == std::string::npos) {
+-        ::close(client);
++        simCloseSocket(client);
+         continue;
+       }
+ 
+@@ -529,7 +526,7 @@ void WebServer::begin() {
+           impl_->emitRawEvent(*this, rawHandlers, RAW_ABORTED, nullptr, 0);
+         }
+         sendSimpleResponse(client, 413, "Payload Too Large");
+-        ::close(client);
++        simCloseSocket(client);
+         continue;
+       }
+       if (body.size() > bodyLength)
+@@ -546,7 +543,7 @@ void WebServer::begin() {
+         }
+       }
+       while (body.size() < bodyLength) {
+-        const ssize_t got = ::recv(client, buffer, sizeof(buffer), 0);
++        const ssize_t got = simRecv(client, buffer, sizeof(buffer), 0);
+         if (got <= 0)
+           break;
+         const size_t offset = body.size();
+@@ -575,7 +572,7 @@ void WebServer::begin() {
+         if (contentType.find("multipart/form-data") != std::string::npos)
+           impl_->emitMultipartAbort();
+         sendSimpleResponse(client, 400, "Incomplete request body");
+-        ::close(client);
++        simCloseSocket(client);
+         continue;
+       }
+       if (hasRawHandlers)
+@@ -661,7 +658,7 @@ void WebServer::begin() {
+         }
+       }
+ 
+-      ::close(client);
++      simCloseSocket(client);
+       impl_->resetRequest();
+     }
+   });
+@@ -698,7 +695,7 @@ void WebServer::stop() {
+   impl_->active = false;
+   if (impl_->fd >= 0) {
+     ::shutdown(impl_->fd, SHUT_RDWR);
+-    ::close(impl_->fd);
++    simCloseSocket(impl_->fd);
+     impl_->fd = -1;
+   }
+   if (impl_->worker.joinable())
+@@ -798,7 +795,7 @@ String WebServer::urlDecode(const String &str) {
+ NetworkClient WebServer::client() {
+   if (impl_->currentClient < 0)
+     return NetworkClient(-1);
+-  const int fd = ::dup(impl_->currentClient);
++  const SimSocket fd = simDupSocket(impl_->currentClient);
+   if (fd < 0)
+     LOG_ERR("WEB", "[SIM] Failed to duplicate client socket: %s",
+             strerror(errno));
+diff --git a/src/WebSocketsServer.cpp b/src/WebSocketsServer.cpp
+index 39e79d6..c7b431b 100644
+--- a/src/WebSocketsServer.cpp
++++ b/src/WebSocketsServer.cpp
+@@ -1,11 +1,8 @@
++#include "SimulatorSockets.h"
+ #include "WebSocketsServer.h"
+ 
+ #include "SimulatorNetworkPorts.h"
+ #include <Logging.h>
+-#include <arpa/inet.h>
+-#include <netinet/in.h>
+-#include <sys/socket.h>
+-#include <sys/time.h>
+ #include <unistd.h>
+ 
+ #include <algorithm>
+@@ -45,10 +42,10 @@ std::string trim(std::string value) {
+   return value;
+ }
+ 
+-bool recvAll(int fd, void *data, size_t len) {
++bool recvAll(SimSocket fd, void *data, size_t len) {
+   auto *ptr = static_cast<uint8_t *>(data);
+   while (len > 0) {
+-    const ssize_t got = ::recv(fd, ptr, len, 0);
++    const ssize_t got = simRecv(fd, ptr, len, 0);
+     if (got <= 0)
+       return false;
+     ptr += got;
+@@ -57,7 +54,7 @@ bool recvAll(int fd, void *data, size_t len) {
+   return true;
+ }
+ 
+-bool sendAll(int fd, const void *data, size_t len) {
++bool sendAll(SimSocket fd, const void *data, size_t len) {
+   const auto *ptr = static_cast<const uint8_t *>(data);
+ #ifdef MSG_NOSIGNAL
+   constexpr int sendFlags = MSG_NOSIGNAL;
+@@ -65,7 +62,7 @@ bool sendAll(int fd, const void *data, size_t len) {
+   constexpr int sendFlags = 0;
+ #endif
+   while (len > 0) {
+-    const ssize_t sent = ::send(fd, ptr, len, sendFlags);
++    const ssize_t sent = simSend(fd, ptr, len, sendFlags);
+     if (sent <= 0)
+       return false;
+     ptr += sent;
+@@ -74,14 +71,14 @@ bool sendAll(int fd, const void *data, size_t len) {
+   return true;
+ }
+ 
+-void setSocketTimeouts(int fd) {
++void setSocketTimeouts(SimSocket fd) {
+   timeval timeout{};
+   timeout.tv_sec = 5;
+-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+-  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
++  simSetSocketOpt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
++  simSetSocketOpt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+ #ifdef SO_NOSIGPIPE
+   int yes = 1;
+-  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
++  simSetSocketOpt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
+ #endif
+ }
+ 
+@@ -182,7 +179,7 @@ std::string websocketAcceptValue(const std::string &key) {
+   return base64Encode(digest.data(), digest.size());
+ }
+ 
+-bool sendWsTextFrame(int fd, const std::string &message) {
++bool sendWsTextFrame(SimSocket fd, const std::string &message) {
+   std::vector<uint8_t> frame;
+   frame.reserve(message.size() + 10);
+   frame.push_back(0x81);
+@@ -201,7 +198,7 @@ bool sendWsTextFrame(int fd, const std::string &message) {
+   return sendAll(fd, frame.data(), frame.size());
+ }
+ 
+-bool sendWsPongFrame(int fd, const std::vector<uint8_t> &payload) {
++bool sendWsPongFrame(SimSocket fd, const std::vector<uint8_t> &payload) {
+   std::vector<uint8_t> frame;
+   frame.reserve(payload.size() + 10);
+   frame.push_back(0x8a);
+@@ -219,7 +216,7 @@ struct WsFrame {
+   std::vector<uint8_t> payload;
+ };
+ 
+-bool readWsFrame(int fd, WsFrame &frame) {
++bool readWsFrame(SimSocket fd, WsFrame &frame) {
+   uint8_t header[2] = {};
+   if (!recvAll(fd, header, sizeof(header)))
+     return false;
+@@ -269,18 +266,18 @@ struct WebSocketsServer::Impl {
+   };
+ 
+   int port;
+-  int fd = -1;
++  SimSocket fd = -1;
+   std::atomic<bool> active{false};
+   std::thread acceptThread;
+   std::mutex clientsMutex;
+   std::mutex clientThreadsMutex;
+   std::mutex eventsMutex;
+-  std::map<uint8_t, int> clients;
++  std::map<uint8_t, SimSocket> clients;
+   std::vector<std::thread> clientThreads;
+   std::vector<Event> pendingEvents;
+   uint8_t nextClient = 0;
+ 
+-  uint8_t addClient(int clientFd) {
++  uint8_t addClient(SimSocket clientFd) {
+     std::lock_guard<std::mutex> lock(clientsMutex);
+     for (size_t i = 0; i < 255; ++i) {
+       const uint8_t candidate = nextClient++;
+@@ -298,16 +295,16 @@ struct WebSocketsServer::Impl {
+     clients.erase(num);
+   }
+ 
+-  std::vector<int> clientFds() {
++  std::vector<SimSocket> clientFds() {
+     std::lock_guard<std::mutex> lock(clientsMutex);
+-    std::vector<int> out;
++    std::vector<SimSocket> out;
+     out.reserve(clients.size());
+     for (const auto &client : clients)
+       out.push_back(client.second);
+     return out;
+   }
+ 
+-  int clientFd(uint8_t num) {
++  SimSocket clientFd(uint8_t num) {
+     std::lock_guard<std::mutex> lock(clientsMutex);
+     const auto it = clients.find(num);
+     return it == clients.end() ? -1 : it->second;
+@@ -335,14 +332,14 @@ void WebSocketsServer::begin() {
+   if (impl_->active)
+     return;
+ 
+-  impl_->fd = ::socket(AF_INET, SOCK_STREAM, 0);
++  impl_->fd = simOpenSocket(AF_INET, SOCK_STREAM, 0);
+   if (impl_->fd < 0) {
+     LOG_ERR("WS", "[SIM] WebSocket socket failed: %s", strerror(errno));
+     return;
+   }
+ 
+   int yes = 1;
+-  setsockopt(impl_->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
++  simSetSocketOpt(impl_->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+ 
+   sockaddr_in addr{};
+   addr.sin_family = AF_INET;
+@@ -352,13 +349,13 @@ void WebSocketsServer::begin() {
+       0) {
+     LOG_ERR("WS", "[SIM] WebSocket bind 127.0.0.1:%d failed: %s", impl_->port,
+             strerror(errno));
+-    ::close(impl_->fd);
++    simCloseSocket(impl_->fd);
+     impl_->fd = -1;
+     return;
+   }
+   if (::listen(impl_->fd, 8) != 0) {
+     LOG_ERR("WS", "[SIM] WebSocket listen failed: %s", strerror(errno));
+-    ::close(impl_->fd);
++    simCloseSocket(impl_->fd);
+     impl_->fd = -1;
+     return;
+   }
+@@ -366,7 +363,7 @@ void WebSocketsServer::begin() {
+   impl_->active = true;
+   impl_->acceptThread = std::thread([this] {
+     while (impl_->active) {
+-      const int client = ::accept(impl_->fd, nullptr, nullptr);
++      const SimSocket client = simAcceptSocket(impl_->fd, nullptr, nullptr);
+       if (client < 0) {
+         if (impl_->active)
+           LOG_ERR("WS", "[SIM] WebSocket accept failed: %s", strerror(errno));
+@@ -379,14 +376,14 @@ void WebSocketsServer::begin() {
+         std::string raw;
+         char buffer[2048];
+         while (raw.find("\r\n\r\n") == std::string::npos) {
+-          const ssize_t got = ::recv(client, buffer, sizeof(buffer), 0);
++          const ssize_t got = simRecv(client, buffer, sizeof(buffer), 0);
+           if (got <= 0) {
+-            ::close(client);
++            simCloseSocket(client);
+             return;
+           }
+           raw.append(buffer, static_cast<size_t>(got));
+           if (raw.size() > 32768) {
+-            ::close(client);
++            simCloseSocket(client);
+             return;
+           }
+         }
+@@ -408,7 +405,7 @@ void WebSocketsServer::begin() {
+ 
+         const auto keyIt = headers.find("sec-websocket-key");
+         if (keyIt == headers.end()) {
+-          ::close(client);
++          simCloseSocket(client);
+           return;
+         }
+ 
+@@ -419,7 +416,7 @@ void WebSocketsServer::begin() {
+                  << "Sec-WebSocket-Accept: "
+                  << websocketAcceptValue(keyIt->second) << "\r\n\r\n";
+         if (!sendAll(client, response.str().data(), response.str().size())) {
+-          ::close(client);
++          simCloseSocket(client);
+           return;
+         }
+ 
+@@ -446,7 +443,7 @@ void WebSocketsServer::begin() {
+ 
+         impl_->pushEvent({num, WStype_DISCONNECTED, {}, 0});
+         impl_->removeClient(num);
+-        ::close(client);
++        simCloseSocket(client);
+       });
+     }
+   });
+@@ -471,7 +468,7 @@ void WebSocketsServer::broadcastTXT(const String &txt) {
+ 
+ void WebSocketsServer::broadcastTXT(const char *txt) {
+   const std::string message = txt ? txt : "";
+-  for (const int fd : impl_->clientFds())
++  for (const SimSocket fd : impl_->clientFds())
+     sendWsTextFrame(fd, message);
+ }
+ 
+@@ -480,7 +477,7 @@ void WebSocketsServer::sendTXT(uint8_t num, const String &txt) {
+ }
+ 
+ void WebSocketsServer::sendTXT(uint8_t num, const char *txt) {
+-  const int fd = impl_->clientFd(num);
++  const SimSocket fd = impl_->clientFd(num);
+   if (fd >= 0)
+     sendWsTextFrame(fd, txt ? txt : "");
+ }
+@@ -489,11 +486,11 @@ void WebSocketsServer::close() {
+   impl_->active = false;
+   if (impl_->fd >= 0) {
+     ::shutdown(impl_->fd, SHUT_RDWR);
+-    ::close(impl_->fd);
++    simCloseSocket(impl_->fd);
+     impl_->fd = -1;
+   }
+ 
+-  for (const int fd : impl_->clientFds())
++  for (const SimSocket fd : impl_->clientFds())
+     ::shutdown(fd, SHUT_RDWR);
+   {
+     std::lock_guard<std::mutex> lock(impl_->clientsMutex);
+diff --git a/src/WiFi.h b/src/WiFi.h
+index fc1e92a..d9ddc43 100644
+--- a/src/WiFi.h
++++ b/src/WiFi.h
+@@ -206,10 +206,12 @@ public:
+     currentStatus = WL_DISCONNECTED;
+     return true;
+   }
+-  void mode(int mode) {
++  bool mode(int mode) {
++    if (mode < WIFI_OFF || mode > WIFI_AP_STA) return false;
+     currentMode = static_cast<wifi_mode_t>(mode);
+     if (mode == WIFI_OFF)
+       currentStatus = WL_DISCONNECTED;
++    return true;
+   }
+   bool softAP(const char *ssid, const char *pass = NULL, int channel = 1,
+               int hidden = 0, int max_connection = 4) {
+diff --git a/src/simulator_firmware.cpp b/src/simulator_firmware.cpp
+index e21ea92..16cdfa6 100644
+--- a/src/simulator_firmware.cpp
++++ b/src/simulator_firmware.cpp
+@@ -4,7 +4,7 @@
+ #include "network/OtaBootSwitch.h"
+ 
+ namespace firmware_flash {
+-Result flashFromSdPath(const char *, ProgressCb onProgress, void *ctx, bool) {
++Result flashFromSdPath(const char *, ProgressCb onProgress, void *ctx) {
+   LOG_DBG("FLASH",
+           "[SIM] Firmware flashing is not supported in the native simulator");
+   if (onProgress)
+diff --git a/src/simulator_main.cpp b/src/simulator_main.cpp
+index 21edd8a..599dad1 100644
+--- a/src/simulator_main.cpp
++++ b/src/simulator_main.cpp
+@@ -12,6 +12,9 @@ extern void loop();
+ extern HalDisplay display; // defined in main.cpp
+ 
+ int main(int argc, char **argv) {
++#ifdef SDL_MAIN_HANDLED
++  SDL_SetMainReady();
++#endif
+   SimulatorLifecycle::initProcessArgs(argv);
+   setup();
+   while (!display.shouldQuit()) {
+diff --git a/src/MD5Builder_windows.h b/src/MD5Builder_windows.h
+new file mode 100644
+--- /dev/null
++++ b/src/MD5Builder_windows.h
+@@ -0,0 +1,38 @@
++#pragma once
++#include <bcrypt.h>
++#include <windows.h>
++
++#include "WString.h"
++class MD5Builder {
++  BCRYPT_ALG_HANDLE algorithm = nullptr;
++  BCRYPT_HASH_HANDLE hash = nullptr;
++  unsigned char digest[16]{};
++
++ public:
++  ~MD5Builder() {
++    if (hash) BCryptDestroyHash(hash);
++    if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
++  }
++  void begin() {
++    if (hash) {
++      BCryptDestroyHash(hash);
++      hash = nullptr;
++    }
++    if (!algorithm) BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_MD5_ALGORITHM, nullptr, 0);
++    if (algorithm) BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0);
++  }
++  void add(const uint8_t* data, size_t size) {
++    if (hash) BCryptHashData(hash, const_cast<PUCHAR>(data), static_cast<ULONG>(size), 0);
++  }
++  void add(const char* data) {
++    if (data) add(reinterpret_cast<const uint8_t*>(data), strlen(data));
++  }
++  void calculate() {
++    if (hash) BCryptFinishHash(hash, digest, sizeof(digest), 0);
++  }
++  String toString() const {
++    char text[33];
++    for (int i = 0; i < 16; ++i) snprintf(text + i * 2, 3, "%02x", digest[i]);
++    return String(text);
++  }
++};
+diff --git a/src/SimulatorSockets.h b/src/SimulatorSockets.h
+new file mode 100644
+--- /dev/null
++++ b/src/SimulatorSockets.h
+@@ -0,0 +1,58 @@
++#pragma once
++#include <climits>
++#include <cstdint>
++#ifdef _WIN32
++#include <winsock2.h>
++#include <ws2tcpip.h>
++using SimSocket = intptr_t;
++#ifndef SHUT_RDWR
++#define SHUT_RDWR SD_BOTH
++#endif
++inline SimSocket simOpenSocket(int family, int type, int protocol) {
++  static const bool initialized = [] {
++    WSADATA data{};
++    return WSAStartup(MAKEWORD(2, 2), &data) == 0;
++  }();
++  if (!initialized) return -1;
++  return static_cast<SimSocket>(::socket(family, type, protocol));
++}
++inline SimSocket simAcceptSocket(SimSocket fd, sockaddr* address, int* length) {
++  return static_cast<SimSocket>(::accept(fd, address, length));
++}
++inline int simCloseSocket(SimSocket fd) { return closesocket(fd); }
++inline SimSocket simDupSocket(SimSocket fd) {
++  WSAPROTOCOL_INFO info{};
++  if (WSADuplicateSocket(fd, GetCurrentProcessId(), &info) != 0) return -1;
++  return static_cast<SimSocket>(WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, &info, 0, 0));
++}
++inline int simSend(SimSocket fd, const void* data, size_t size, int flags) {
++  return ::send(fd, static_cast<const char*>(data), static_cast<int>(size > INT_MAX ? INT_MAX : size), flags);
++}
++inline int simRecv(SimSocket fd, void* data, size_t size, int flags) {
++  return ::recv(fd, static_cast<char*>(data), static_cast<int>(size > INT_MAX ? INT_MAX : size), flags);
++}
++inline int simSetSocketOpt(SimSocket fd, int level, int option, const void* data, int size) {
++  if (option == SO_RCVTIMEO || option == SO_SNDTIMEO) {
++    const auto* time = static_cast<const timeval*>(data);
++    const DWORD milliseconds = static_cast<DWORD>(time->tv_sec * 1000 + time->tv_usec / 1000);
++    return ::setsockopt(fd, level, option, reinterpret_cast<const char*>(&milliseconds), sizeof(milliseconds));
++  }
++  return ::setsockopt(fd, level, option, static_cast<const char*>(data), size);
++}
++#else
++#include <arpa/inet.h>
++#include <netdb.h>
++#include <netinet/in.h>
++#include <sys/select.h>
++#include <sys/socket.h>
++#include <sys/time.h>
++#include <unistd.h>
++using SimSocket = int;
++#define simOpenSocket ::socket
++#define simAcceptSocket ::accept
++#define simCloseSocket ::close
++#define simDupSocket ::dup
++#define simSend ::send
++#define simRecv ::recv
++#define simSetSocketOpt ::setsockopt
++#endif
+diff --git a/src/WindowsHostCompat.h b/src/WindowsHostCompat.h
+new file mode 100644
+--- /dev/null
++++ b/src/WindowsHostCompat.h
+@@ -0,0 +1,48 @@
++#pragma once
++#ifdef _WIN32
++typedef unsigned int uint;
++#endif
++#ifdef __cplusplus
++#if defined(__GNUC__)
++// GCC counterpart of the project's Clang -Wno-c++11-narrowing flag.
++// Generated gzip byte arrays intentionally initialize plain char with byte values.
++#pragma GCC diagnostic ignored "-Wnarrowing"
++#endif
++#ifdef _WIN32
++#include <windows.h>
++#include <winsock2.h>
++#undef ERROR
++#undef IGNORE
++#undef DELETE
++#undef TRANSPARENT
++#include <direct.h>
++#include <io.h>
++
++#include <cstdlib>
++#include <cstring>
++#include <ctime>
++inline size_t strlcpy(char* destination, const char* source, size_t capacity) {
++  const size_t length = std::strlen(source);
++  if (capacity) {
++    const size_t copied = length < capacity - 1 ? length : capacity - 1;
++    std::memcpy(destination, source, copied);
++    destination[copied] = '\0';
++  }
++  return length;
++}
++inline int setenv(const char* name, const char* value, int overwrite) {
++  if (!overwrite && std::getenv(name)) return 0;
++  return _putenv_s(name, value);
++}
++inline int unsetenv(const char* name) { return _putenv_s(name, ""); }
++inline tm* gmtime_r(const time_t* value, tm* output) { return gmtime_s(output, value) == 0 ? output : nullptr; }
++inline tm* localtime_r(const time_t* value, tm* output) { return localtime_s(output, value) == 0 ? output : nullptr; }
++inline int simMkdir(const char* path, int) { return _mkdir(path); }
++inline int simFsync(int fd) { return _commit(fd); }
++#else
++#include <sys/stat.h>
++#include <unistd.h>
++inline int simMkdir(const char* path, int mode) { return ::mkdir(path, mode); }
++inline int simFsync(int fd) { return fsync(fd); }
++#endif
++#endif
+diff --git a/src/WindowsHttpFetch.h b/src/WindowsHttpFetch.h
+new file mode 100644
+--- /dev/null
++++ b/src/WindowsHttpFetch.h
+@@ -0,0 +1,74 @@
++#pragma once
++#include <windows.h>
++#include <winhttp.h>
++
++#include <map>
++#include <string>
++
++namespace sim_http_fetch {
++inline std::wstring wide(const std::string& value) {
++  const int count = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
++  std::wstring result(count, L'\0');
++  MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), count);
++  return result;
++}
++struct InternetHandle {
++  HINTERNET value;
++  ~InternetHandle() {
++    if (value) WinHttpCloseHandle(value);
++  }
++};
++template <typename Response>
++bool windowsHttpFetch(const std::string& url, const char* method, const std::map<std::string, std::string>& headers,
++                      const std::string& basicAuth, const char* body, Response& out) {
++  const auto address = wide(url);
++  URL_COMPONENTS parts{};
++  parts.dwStructSize = sizeof(parts);
++  parts.dwHostNameLength = parts.dwUrlPathLength = parts.dwExtraInfoLength = static_cast<DWORD>(-1);
++  if (!WinHttpCrackUrl(address.c_str(), 0, 0, &parts)) return false;
++  InternetHandle session{WinHttpOpen(L"CrossCover Simulator", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0)};
++  if (!session.value) return false;
++  WinHttpSetTimeouts(session.value, 10000, 10000, 60000, 60000);
++  std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
++  InternetHandle connection{WinHttpConnect(session.value, host.c_str(), parts.nPort, 0)};
++  if (!connection.value) return false;
++  std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
++  if (parts.dwExtraInfoLength) path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
++  if (path.empty()) path = L"/";
++  const auto verb = wide(method ? method : "GET");
++  InternetHandle request{WinHttpOpenRequest(connection.value, verb.c_str(), path.c_str(), nullptr, nullptr,
++                                            WINHTTP_DEFAULT_ACCEPT_TYPES,
++                                            parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0)};
++  if (!request.value) return false;
++  for (const auto& pair : headers) {
++    const auto header = wide(pair.first + ": " + pair.second);
++    if (!WinHttpAddRequestHeaders(request.value, header.c_str(), static_cast<DWORD>(header.size()),
++                                  WINHTTP_ADDREQ_FLAG_ADD))
++      return false;
++  }
++  if (!basicAuth.empty()) {
++    const auto colon = basicAuth.find(':');
++    const auto user = wide(basicAuth.substr(0, colon));
++    const auto password = wide(colon == std::string::npos ? "" : basicAuth.substr(colon + 1));
++    WinHttpSetCredentials(request.value, WINHTTP_AUTH_TARGET_SERVER, WINHTTP_AUTH_SCHEME_BASIC, user.c_str(),
++                          password.c_str(), nullptr);
++  }
++  const DWORD length = body ? static_cast<DWORD>(strlen(body)) : 0;
++  if (!WinHttpSendRequest(request.value, nullptr, 0, const_cast<char*>(body), length, length, 0) ||
++      !WinHttpReceiveResponse(request.value, nullptr))
++    return false;
++  DWORD status = 0, size = sizeof(status);
++  if (!WinHttpQueryHeaders(request.value, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &status,
++                           &size, nullptr))
++    return false;
++  out.statusCode = static_cast<int>(status);
++  char buffer[8192];
++  DWORD received = 0;
++  while (true) {
++    if (!WinHttpReadData(request.value, buffer, sizeof(buffer), &received)) return false;
++    if (!received) break;
++    out.body.append(buffer, received);
++  }
++  return true;
++}
++}  // namespace sim_http_fetch

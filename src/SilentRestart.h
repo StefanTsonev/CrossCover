@@ -15,6 +15,8 @@ enum class NetworkBootTarget : uint32_t {
   FILE_TRANSFER = 6,
   MANAGE_FONTS = 7,
   HARDCOVER_AUTH = 8,
+  HARDCOVER_SYNC = 9,
+  HARDCOVER_LIBRARY = 10,
 };
 
 constexpr bool isNetworkBootTargetValue(const uint32_t value) {
@@ -26,6 +28,8 @@ constexpr bool isNetworkBootTargetValue(const uint32_t value) {
     case NetworkBootTarget::FILE_TRANSFER:
     case NetworkBootTarget::MANAGE_FONTS:
     case NetworkBootTarget::HARDCOVER_AUTH:
+    case NetworkBootTarget::HARDCOVER_SYNC:
+    case NetworkBootTarget::HARDCOVER_LIBRARY:
       return true;
   }
   return false;
@@ -37,11 +41,13 @@ static_assert(isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::KOREADER_AUTH)) &&
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::FILE_TRANSFER)) &&
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::MANAGE_FONTS)) &&
-                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_AUTH)),
+                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_AUTH)) &&
+                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_SYNC)) &&
+                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_LIBRARY)),
               "Every network boot target must pass RTC target validation");
 
-void silentRestart();                                            // home screen
-void silentRestartToReader(bool cleanImageBaseOnEntry = false);  // currently-open EPUB (APP_STATE.openEpubPath)
+void silentRestart();  // home screen
+void silentRestartToReader(bool cleanImageBaseOnEntry = false, bool openHardcoverMenu = false);
 // Reboots immediately after an activity releases exclusive raw storage.
 void restartToHomeAfterStorageHandoff();
 void silentRestartToNetwork(NetworkBootTarget target, uint32_t payload = 0);

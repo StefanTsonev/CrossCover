@@ -137,6 +137,7 @@ struct UserBookRecord {
   int editionId = 0;
   int pages = 0;
   int readId = 0;
+  int statusId = 0;
 };
 
 void setLastErrorDetail(const char* detail) {
@@ -188,7 +189,7 @@ bool hasGraphqlErrors(const JsonDocument& doc) {
 }
 
 void setGraphqlErrorDetail(const JsonDocument& doc, const char* fallback) {
-  const char* message = doc["errors"][0]["message"] | nullptr;
+  const char* message = doc["errors"][0]["message"].as<const char*>();
   if (message && message[0] != '\0') {
     setLastErrorDetail(message);
     return;
@@ -253,6 +254,27 @@ HardcoverClient::Error parseOk(const char* body) {
     setGraphqlErrorDetail(doc, "GraphQL mutation error");
     return HardcoverClient::API_ERROR;
   }
+  // Hardcover mutations may report a rejected operation inside the mutation
+  // payload while the GraphQL transport itself succeeds with HTTP 200.
+  JsonObjectConst data = doc["data"].as<JsonObjectConst>();
+  if (data.isNull() || data.size() == 0) {
+    LOG_ERR("HDC", "Mutation response has no confirmation payload");
+    setLastErrorDetail("Hardcover did not confirm the update");
+    return HardcoverClient::API_ERROR;
+  }
+  for (JsonPairConst field : data) {
+    JsonObjectConst payload = field.value().as<JsonObjectConst>();
+    const char* operationError = payload["error"].as<const char*>();
+    JsonArrayConst operationErrors = payload["errors"].as<JsonArrayConst>();
+    if ((operationError && operationError[0] != '\0') || (!operationErrors.isNull() && operationErrors.size() > 0)) {
+      setLastErrorDetail(operationError && operationError[0] ? operationError : "Hardcover rejected the update");
+      return HardcoverClient::API_ERROR;
+    }
+    if (payload.isNull() || payload["id"].as<int>() <= 0) {
+      setLastErrorDetail("Hardcover did not confirm the update");
+      return HardcoverClient::API_ERROR;
+    }
+  }
   return HardcoverClient::OK;
 }
 
@@ -277,11 +299,17 @@ HardcoverClient::Error parseUserBookRecord(const char* body, UserBookRecord& out
 
   JsonObject userBook = doc["data"]["user_books"][0];
   outRecord.id = userBook["id"] | 0;
+  outRecord.statusId = userBook["status_id"] | 0;
   outRecord.editionId = userBook["edition_id"] | 0;
   outRecord.pages = userBook["book"]["pages"] | 0;
   JsonArrayConst reads = userBook["user_book_reads"].as<JsonArrayConst>();
   if (!reads.isNull() && reads.size() > 0) {
     outRecord.readId = reads[0]["id"] | 0;
+    outRecord.editionId = reads[0]["edition_id"] | outRecord.editionId;
+    const int editionPages = reads[0]["edition"]["pages"] | 0;
+    // A known reading edition with no page count must not inherit the book's
+    // generic page count: that could send progress for a different edition.
+    if (outRecord.editionId > 0 || editionPages > 0) outRecord.pages = editionPages;
   }
   return HardcoverClient::OK;
 }
@@ -310,7 +338,7 @@ HardcoverClient::Error parseLibrary(const char* body, std::vector<HardcoverLibra
   for (JsonObject item : books) {
     HardcoverLibraryBook book;
     book.statusId = item["status_id"] | 0;
-    book.rating = item["rating"] | 0;
+    book.rating = item["rating"] | 0.0f;
     JsonArray reads = item["user_book_reads"].as<JsonArray>();
     if (!reads.isNull() && reads.size() > 0) {
       book.progressPages = reads[0]["progress_pages"] | 0;
@@ -319,6 +347,11 @@ HardcoverClient::Error parseLibrary(const char* body, std::vector<HardcoverLibra
     book.bookId = bookObj["id"] | 0;
     book.title = bookObj["title"] | std::string("");
     book.pages = bookObj["pages"] | 0;
+    if (!reads.isNull() && reads.size() > 0) {
+      book.editionId = reads[0]["edition_id"] | 0;
+      const int editionPages = reads[0]["edition"]["pages"] | 0;
+      if (book.editionId > 0 || editionPages > 0) book.pages = editionPages;
+    }
     outBooks.push_back(std::move(book));
   }
   return HardcoverClient::OK;
@@ -638,7 +671,7 @@ HardcoverClient::Error postGraphql(const char* query, String& responseBody) {
   }
   if (httpCode == 200) return HardcoverClient::OK;
   if (httpCode == 401 || httpCode == 403) {
-    setLastErrorDetail("Token expired or invalid");
+    setLastErrorDetail(httpCode == 401 ? "Token expired or invalid" : "Token is missing required permissions");
     return HardcoverClient::AUTH_FAILED;
   }
   if (httpCode == 429) {
@@ -679,16 +712,21 @@ HardcoverClient::Error findUserBookRecord(const int bookId, UserBookRecord& outR
   }
 
   char query[320];
-  snprintf(query, sizeof(query),
-           "query { user_books(where: {user_id: {_eq: %d}, book_id: {_eq: %d}}, limit: 1) { id edition_id book { "
-           "pages } user_book_reads(order_by: {started_at: desc}, limit: 1) { id } } }",
-           userId, bookId);
+  snprintf(
+      query, sizeof(query),
+      "query { user_books(where: {user_id: {_eq: %d}, book_id: {_eq: %d}}, limit: 1) { id status_id edition_id book { "
+      "pages } user_book_reads(order_by: {started_at: desc}, limit: 1) { id edition_id edition { pages } } } }",
+      userId, bookId);
   String body;
   const HardcoverClient::Error err = postGraphql(query, body);
   return err == HardcoverClient::OK ? parseUserBookRecord(body.c_str(), outRecord) : err;
 }
 
 HardcoverClient::Error HardcoverClient::upsertBookStatus(int bookId, int statusId) {
+  if (bookId <= 0 || statusId < 1 || statusId > 5) {
+    setLastErrorDetail("Invalid book or reading status");
+    return API_ERROR;
+  }
   UserBookRecord userBook;
   Error err = findUserBookRecord(bookId, userBook);
   if (err != OK) return err;
@@ -706,7 +744,12 @@ HardcoverClient::Error HardcoverClient::upsertBookStatus(int bookId, int statusI
   return err == OK ? parseOk(body.c_str()) : err;
 }
 
-HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressPercent) {
+HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressPercent, int editionId,
+                                                       int editionPages) {
+  if (bookId <= 0) {
+    setLastErrorDetail("Invalid book");
+    return API_ERROR;
+  }
   UserBookRecord userBook;
   Error err = findUserBookRecord(bookId, userBook);
   if (err != OK) return err;
@@ -723,17 +766,31 @@ HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressP
 
   if (progressPercent < 0) progressPercent = 0;
   if (progressPercent > 100) progressPercent = 100;
-  if (userBook.pages <= 0) {
+  const int pages = editionPages > 0                                     ? editionPages
+                    : (editionId > 0 && editionId != userBook.editionId) ? 0
+                                                                         : userBook.pages;
+  if (pages <= 0) {
     LOG_ERR("HDC", "Cannot convert progress to pages: Hardcover edition has no page count");
     setLastErrorDetail("Hardcover edition has no page count; progress was not changed");
     return API_ERROR;
   }
-  const int progressPages = (userBook.pages * progressPercent + 50) / 100;
+  const int progressPages = (pages * progressPercent + 50) / 100;
 
   char query[320];
   if (userBook.readId > 0) {
-    snprintf(query, sizeof(query), "mutation { update_user_book_read(id: %d, object: {progress_pages: %d}) { id } }",
-             userBook.readId, progressPages);
+    if (editionId > 0) {
+      snprintf(query, sizeof(query),
+               "mutation { update_user_book_read(id: %d, object: {progress_pages: %d, edition_id: %d}) { id } }",
+               userBook.readId, progressPages, editionId);
+    } else {
+      snprintf(query, sizeof(query), "mutation { update_user_book_read(id: %d, object: {progress_pages: %d}) { id } }",
+               userBook.readId, progressPages);
+    }
+  } else if (editionId > 0) {
+    snprintf(query, sizeof(query),
+             "mutation { insert_user_book_read(user_book_id: %d, user_book_read: {progress_pages: %d, edition_id: %d}) "
+             "{ id } }",
+             userBook.id, progressPages, editionId);
   } else if (userBook.editionId > 0) {
     snprintf(query, sizeof(query),
              "mutation { insert_user_book_read(user_book_id: %d, user_book_read: {progress_pages: %d, edition_id: %d}) "
@@ -749,46 +806,168 @@ HardcoverClient::Error HardcoverClient::updateProgress(int bookId, int progressP
   return err == OK ? parseOk(body.c_str()) : err;
 }
 
-HardcoverClient::Error HardcoverClient::rateBook(int bookId, int rating) {
+HardcoverClient::Error HardcoverClient::rateBook(int bookId, float rating, int statusId) {
+  if (bookId <= 0 || !(rating >= 0.5f && rating <= 5.0f) || static_cast<int>(rating * 2) != rating * 2) {
+    setLastErrorDetail("Rating must be 0.5 to 5 stars in half-star steps");
+    return API_ERROR;
+  }
   UserBookRecord userBook;
   Error err = findUserBookRecord(bookId, userBook);
   if (err != OK) return err;
 
+  const int preservedStatus = userBook.id > 0 ? userBook.statusId : statusId;
+  const int desiredStatus = preservedStatus >= 1 && preservedStatus <= 5 ? preservedStatus : 1;
   char query[256];
   if (userBook.id > 0) {
-    snprintf(query, sizeof(query), "mutation { update_user_book(id: %d, object: {rating: %d}) { id } }", userBook.id,
-             rating);
+    snprintf(query, sizeof(query),
+             "mutation { update_user_book(id: %d, object: {rating: %.1f, status_id: %d}) { id } }", userBook.id,
+             static_cast<double>(rating), desiredStatus);
   } else {
     snprintf(query, sizeof(query),
-             "mutation { insert_user_book(object: {book_id: %d, status_id: 3, rating: %d}) { id } }", bookId, rating);
+             "mutation { insert_user_book(object: {book_id: %d, status_id: %d, rating: %.1f}) { id } }", bookId,
+             desiredStatus, static_cast<double>(rating));
   }
   String body;
   err = postGraphql(query, body);
-  return err == OK ? parseOk(body.c_str()) : err;
+  if (err != OK) return err;
+  err = parseOk(body.c_str());
+  if (err != OK) return err;
+  // Verify server-side rating rules did not also change the reading status.
+  body = String();
+  UserBookRecord updated;
+  err = findUserBookRecord(bookId, updated);
+  if (err != OK) return err;
+  if (updated.id <= 0) {
+    setLastErrorDetail("Rated book could not be verified");
+    LOG_ERR("HDC", "Rated book missing from verification response");
+    return API_ERROR;
+  }
+  return updated.statusId == desiredStatus ? OK : upsertBookStatus(bookId, desiredStatus);
 }
 
-HardcoverClient::Error HardcoverClient::fetchLibrary(std::vector<HardcoverLibraryBook>& outBooks, int limit) {
+HardcoverClient::Error HardcoverClient::fetchLibrary(std::vector<HardcoverLibraryBook>& outBooks, int limit, int bookId,
+                                                     int offset) {
   const int userId = HARDCOVER_STORE.getUserId();
   if (userId <= 0) {
     setLastErrorDetail("Authenticate Hardcover first");
     return AUTH_FAILED;
   }
 
-  char query[768];
+  char bookFilter[48] = "";
+  if (bookId > 0) snprintf(bookFilter, sizeof(bookFilter), ", book_id: {_eq: %d}", bookId);
+  // Bounded query buffer replaces the previous 768-byte frame.
+  char query[384];
   snprintf(query, sizeof(query),
-           "query { user_books(where: {user_id: {_eq: %d}}, limit: %d, order_by: {date_added: desc}) { status_id "
-           "rating user_book_reads(order_by: {started_at: desc}, limit: 1) { progress_pages } book { id title pages } "
+           "query { user_books(where: {user_id: {_eq: %d}%s}, limit: %d, offset: %d, order_by: [{date_added: desc}, "
+           "{id: desc}]) { status_id "
+           "rating user_book_reads(order_by: {started_at: desc}, limit: 1) { progress_pages edition_id edition { pages "
+           "} } book { id title pages } "
            "} }",
-           userId, limit);
+           userId, bookFilter, std::clamp(limit, 1, 20), std::max(0, offset));
   String body;
   Error err = postGraphql(query, body);
   return err == OK ? parseLibrary(body.c_str(), outBooks) : err;
+}
+
+HardcoverClient::Error HardcoverClient::getBookDetails(int bookId, HardcoverBookSearchResult& outBook) {
+  outBook = {};
+  if (bookId <= 0) {
+    setLastErrorDetail("Invalid book ID");
+    LOG_ERR("HDC", "Invalid book ID for metadata lookup");
+    return API_ERROR;
+  }
+  // Bounded metadata query, used only during linking or opening book details.
+  char query[256];
+  snprintf(query, sizeof(query),
+           "query { books(where: {id: {_eq: %d}}, limit: 1) { id title pages contributions(limit: 1) { author { name } "
+           "} default_ebook_edition { id pages } default_physical_edition { id pages } } }",
+           bookId);
+  String body;
+  const auto error = postGraphql(query, body);
+  if (error != OK) return error;
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) {
+    setLastErrorDetail("Invalid book metadata response");
+    LOG_ERR("HDC", "Could not parse book metadata response");
+    return JSON_ERROR;
+  }
+  if (hasGraphqlErrors(doc)) {
+    setGraphqlErrorDetail(doc, "Book details error");
+    return API_ERROR;
+  }
+  const JsonObjectConst book = doc["data"]["books"][0];
+  outBook.bookId = book["id"] | 0;
+  outBook.title = book["title"] | std::string{};
+  outBook.author = book["contributions"][0]["author"]["name"] | std::string{};
+  JsonObjectConst edition = book["default_ebook_edition"];
+  if (edition.isNull() || (edition["pages"] | 0) <= 0) edition = book["default_physical_edition"];
+  outBook.editionId = edition["id"] | 0;
+  outBook.pages = edition["pages"] | 0;
+  if (outBook.bookId <= 0) {
+    setLastErrorDetail("Book not found");
+    return API_ERROR;
+  }
+  return OK;
 }
 
 HardcoverClient::Error HardcoverClient::searchBook(const std::string& searchQuery, HardcoverBookSearchResult& outBook) {
   if (searchQuery.empty()) {
     setLastErrorDetail("Missing search text");
     return API_ERROR;
+  }
+
+  // ISBN identifies an edition, so resolve it directly instead of attaching
+  // progress to Hardcover's unrelated default book edition.
+  int isbnDigits = 0;
+  bool isbnText = true;
+  for (const char c : searchQuery) {
+    if (c >= '0' && c <= '9')
+      ++isbnDigits;
+    else if (c != '-' && c != ' ')
+      isbnText = false;
+  }
+  if (isbnText && (isbnDigits == 10 || isbnDigits == 13)) {
+    char editionQuery[320];
+    const char* field = isbnDigits == 10 ? "isbn_10" : "isbn_13";
+    int pos = snprintf(editionQuery, sizeof(editionQuery), "query { editions(where: {%s: {_eq: ", field);
+    if (pos <= 0 || static_cast<size_t>(pos) >= sizeof(editionQuery)) return LOW_MEMORY;
+    size_t queryPos = static_cast<size_t>(pos);
+    std::string normalizedIsbn;
+    normalizedIsbn.reserve(searchQuery.size());
+    for (const char c : searchQuery)
+      if (c >= '0' && c <= '9') normalizedIsbn.push_back(c);
+    if (!appendGraphqlStringLiteral(editionQuery, sizeof(editionQuery), queryPos, normalizedIsbn.c_str()))
+      return LOW_MEMORY;
+    const int suffix = snprintf(editionQuery + queryPos, sizeof(editionQuery) - queryPos,
+                                "}}, limit: 1) { id pages title book { id title } } }");
+    if (suffix <= 0 || static_cast<size_t>(suffix) >= sizeof(editionQuery) - queryPos) return LOW_MEMORY;
+    String editionBody;
+    const Error requestError = postGraphql(editionQuery, editionBody);
+    if (requestError != OK) return requestError;
+    JsonDocument editionDoc;
+    const DeserializationError editionJsonError = deserializeJson(editionDoc, editionBody.c_str());
+    if (editionJsonError) {
+      setLastErrorDetail("Invalid ISBN lookup response");
+      return JSON_ERROR;
+    }
+    if (hasGraphqlErrors(editionDoc)) {
+      setGraphqlErrorDetail(editionDoc, "ISBN lookup failed");
+      return API_ERROR;
+    }
+    JsonObjectConst edition = editionDoc["data"]["editions"][0].as<JsonObjectConst>();
+    if (edition.isNull()) {
+      setLastErrorDetail("No edition matched that ISBN");
+      return API_ERROR;
+    }
+    outBook.editionId = edition["id"] | 0;
+    outBook.pages = edition["pages"] | 0;
+    outBook.bookId = edition["book"]["id"] | 0;
+    outBook.title = edition["book"]["title"] | edition["title"] | std::string("");
+    if (outBook.bookId <= 0 || outBook.editionId <= 0) {
+      setLastErrorDetail("ISBN lookup did not identify a book edition");
+      return API_ERROR;
+    }
+    return OK;
   }
 
   char query[384];

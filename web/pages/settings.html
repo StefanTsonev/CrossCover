@@ -1,5 +1,19 @@
 <div id="message" class="message"></div>
 
+  <div class="card" id="hardcover-setup-card">
+    <h2>Hardcover</h2>
+    <p id="hardcover-account-state">Checking connection…</p>
+    <p>Create a dedicated key with only library read/write, catalog search, and profile access.</p>
+    <p><a href="https://hardcover.app/account/api/keys/new?scope=read%3Alibrary%3Aprivate%20write%3Alibrary%20read%3Acatalog%3Asearch%20read%3Ame%3Acontent" target="_blank" rel="noopener noreferrer">Create a scoped Hardcover key</a></p>
+    <label for="hardcover-token">Paste the new key</label>
+    <input id="hardcover-token" type="password" autocomplete="new-password" spellcheck="false">
+    <div class="hardcover-actions">
+      <button type="button" onclick="saveHardcoverToken()">Save key</button>
+      <button type="button" class="secondary" onclick="clearHardcoverToken()">Disconnect</button>
+    </div>
+    <p class="help-text">The key is sent only to this device and is never shown again. Return to the reader and choose Settings → Hardcover → Authenticate.</p>
+  </div>
+
   <div id="settings-container">
     <div class="loader-container">
       <span class="loader"></span>

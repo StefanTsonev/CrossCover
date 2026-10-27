@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/home/FileBrowserActivity.h"
@@ -51,6 +52,11 @@ void ShadowLibraryActivity::onExit() {
   Activity::onExit();
   results.reset();
   resultCount = 0;
+  if (openAfterExit) {
+    WiFi.disconnect(false);
+    silentRestartToReader(true);
+    return;
+  }
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(false);
     delay(30);
@@ -78,7 +84,31 @@ void ShadowLibraryActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       checkAndConnectWifi();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      onGoHome();
+      if (lastRequest == Request::Download && resultCount > 0) {
+        state = State::BROWSING;
+        requestUpdate();
+      } else
+        launchSearch();
+    }
+    return;
+  }
+
+  if (state == State::COMPLETED) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      state = State::BROWSING;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      const auto previous = APP_STATE.openEpubPath;
+      APP_STATE.openEpubPath = downloadedPath;
+      if (!APP_STATE.saveToFile()) {
+        APP_STATE.openEpubPath = previous;
+        LOG_ERR("SHADOW", "Could not persist downloaded book for reader restart");
+        errorMessage = tr(STR_LIBGEN_OPEN_SAVE_FAILED);
+        requestUpdate();
+      } else {
+        openAfterExit = true;
+        finish();
+      }
     }
     return;
   }
@@ -95,7 +125,8 @@ void ShadowLibraryActivity::loop() {
       downloadBook(results[selectedIndex]);
     }
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    onGoHome();
+    launchSearch();
+    return;
   }
 
   if (resultCount > 0) {
@@ -172,7 +203,8 @@ void ShadowLibraryActivity::render(RenderLock&&) {
   if (state == State::ERROR) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_ERROR_MSG));
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, errorMessage.c_str());
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
+    const auto labels =
+        mappedInput.mapLabels(lastRequest == Request::Download ? tr(STR_BACK) : tr(STR_SEARCH), tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -192,9 +224,35 @@ void ShadowLibraryActivity::render(RenderLock&&) {
     return;
   }
 
+  if (state == State::COMPLETED) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    const int x = metrics.contentSidePadding;
+    const int width = std::max(1, pageWidth - x * 2);
+    int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int bottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID) + 4;
+    const auto drawBlock = [&](const char* text, int lines) {
+      for (const auto& line : renderer.wrappedText(UI_10_FONT_ID, text, width, lines)) {
+        if (y + lineHeight > bottom) break;
+        renderer.drawText(UI_10_FONT_ID, x, y, line.c_str());
+        y += lineHeight;
+      }
+      y += metrics.verticalSpacing;
+    };
+    drawBlock(tr(STR_LIBGEN_DOWNLOAD_COMPLETE), 2);
+    drawBlock(statusMessage.c_str(), 2);
+    drawBlock(tr(STR_LIBGEN_SAVED_TO), 1);
+    drawBlock(downloadedPath.c_str(), 4);
+    if (!errorMessage.empty()) drawBlock(errorMessage.c_str(), 2);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_OPEN), "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
   if (resultCount == 0) {
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_SHADOW_LIBRARY_NO_RESULTS));
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    const auto labels = mappedInput.mapLabels(tr(STR_SEARCH), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -228,7 +286,7 @@ void ShadowLibraryActivity::render(RenderLock&&) {
       }
     }
   }
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DOWNLOAD), "", "");
+  const auto labels = mappedInput.mapLabels(tr(STR_SEARCH), tr(STR_DOWNLOAD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
@@ -374,7 +432,7 @@ void ShadowLibraryActivity::loadVisibleCoverThumbnails() {
 
 void ShadowLibraryActivity::checkAndConnectWifi() {
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
-    launchSearch();
+    continueRequest();
     return;
   }
   launchWifiSelection();
@@ -383,25 +441,59 @@ void ShadowLibraryActivity::checkAndConnectWifi() {
 void ShadowLibraryActivity::launchWifiSelection() {
   state = State::WIFI_SELECTION;
   requestUpdate();
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-                         [this](const ActivityResult& result) {
-                           if (result.isCancelled) {
-                             state = State::ERROR;
-                             errorMessage = tr(STR_WIFI_CONN_FAILED);
-                             requestUpdate();
-                           } else {
-                             launchSearch();
-                           }
-                         });
+  auto wifi = makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput);
+  if (!wifi) {
+    LOG_ERR("SHADOW", "OOM opening Wi-Fi selection");
+    state = State::ERROR;
+    errorMessage = tr(STR_MEMORY_ERROR);
+    requestUpdate();
+    return;
+  }
+  startActivityForResult(std::move(wifi), [this](const ActivityResult& result) {
+    if (result.isCancelled) {
+      state = State::ERROR;
+      errorMessage = tr(STR_WIFI_CONN_FAILED);
+      requestUpdate();
+    } else {
+      continueRequest();
+    }
+  });
+}
+
+void ShadowLibraryActivity::continueRequest() {
+  if (!results) {
+    results = makeUniqueNoThrow<ShadowLibraryBook[]>(MAX_SHADOW_LIBRARY_RESULTS);
+    if (!results) {
+      LOG_ERR("SHADOW", "OOM allocating search results on retry");
+      state = State::ERROR;
+      errorMessage = tr(STR_MEMORY_ERROR);
+      requestUpdate();
+      return;
+    }
+  }
+  if (lastRequest == Request::Download && selectedIndex >= 0 && selectedIndex < static_cast<int>(resultCount))
+    downloadBook(results[selectedIndex]);
+  else if (lastRequest == Request::Search)
+    performSearch(lastQuery.data());
+  else
+    launchSearch();
 }
 
 void ShadowLibraryActivity::launchSearch() {
+  lastRequest = Request::None;
   consumeConfirm = true;
   state = State::SEARCH_INPUT;
   statusMessage = tr(STR_SHADOW_LIBRARY_SEARCH_HINT);
   requestUpdate();
-  auto keyboard = std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SHADOW_LIBRARY_SEARCH), "", 96,
-                                                          InputType::Text, 1);
+  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SHADOW_LIBRARY_SEARCH),
+                                                           lastQuery.data(), 96, InputType::Text, 1);
+  if (!keyboard) {
+    LOG_ERR("SHADOW", "OOM opening search keyboard");
+    state = State::ERROR;
+    errorMessage = tr(STR_MEMORY_ERROR);
+    requestUpdate();
+    return;
+  }
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     if (result.isCancelled) {
       onGoHome();
@@ -413,6 +505,10 @@ void ShadowLibraryActivity::launchSearch() {
 }
 
 void ShadowLibraryActivity::performSearch(const std::string& query) {
+  lastRequest = Request::Search;
+  snprintf(lastQuery.data(), lastQuery.size(), "%s", query.c_str());
+  downloadedPath.clear();
+  completedIndex = -1;
   state = State::SEARCHING;
   statusMessage = tr(STR_LOADING);
   requestUpdateAndWait();
@@ -436,8 +532,15 @@ void ShadowLibraryActivity::performSearch(const std::string& query) {
 }
 
 void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
-  state = State::DOWNLOADING;
+  lastRequest = Request::Download;
+  errorMessage.clear();
   statusMessage = book.title;
+  if (completedIndex == selectedIndex && !downloadedPath.empty() && Storage.exists(downloadedPath.c_str())) {
+    state = State::COMPLETED;
+    requestUpdate();
+    return;
+  }
+  state = State::DOWNLOADING;
   downloadProgress = downloadTotal = 0;
   requestUpdate(true);
 
@@ -532,7 +635,9 @@ void ShadowLibraryActivity::downloadBook(const ShadowLibraryBook& book) {
     errorMessage = tr(STR_DOWNLOAD_FAILED);
   } else if (result == HttpDownloader::OK) {
     clearBookCache(filename);
-    state = State::BROWSING;
+    downloadedPath = std::move(filename);
+    completedIndex = selectedIndex;
+    state = State::COMPLETED;
   } else if (result == HttpDownloader::ABORTED) {
     mappedInput.suppressNextBackRelease();
     state = State::BROWSING;

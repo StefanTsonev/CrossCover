@@ -11,9 +11,9 @@ Based on CrossInk: `1.6.1`
 ## Screenshots
 
 <p align="center">
-  <img src="boot.jpg" alt="CrossCover home screen" width="32%">
-  <img src="library.jpg" alt="CrossCover Hardcover library" width="32%">
-  <img src="shadow.jpg" alt="CrossCover LibGen search results" width="32%">
+  <img src="boot.png" alt="CrossCover boot screen" width="32%">
+  <img src="library.png" alt="CrossCover Hardcover library" width="32%">
+  <img src="shadow.png" alt="CrossCover LibGen search results" width="32%">
 </p>
 
 ## ⚠️ Important hardware warning

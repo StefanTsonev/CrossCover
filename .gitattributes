@@ -12,6 +12,7 @@
 *.sh text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol
 
 *.cmd text eol=crlf
 *.bat text eol=crlf

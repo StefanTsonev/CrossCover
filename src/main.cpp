@@ -94,6 +94,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
+#include "activities/home/HardcoverLibraryActivity.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
@@ -354,6 +355,7 @@ constexpr uint32_t SILENT_REBOOT_TARGET_READER = 1;
 constexpr uint32_t SILENT_REBOOT_FRONTLIGHT_VALID = 1U << 31;
 constexpr uint32_t SILENT_REBOOT_FRONTLIGHT_ON = 1U << 30;
 constexpr uint32_t SILENT_REBOOT_READER_CLEAN_IMAGE_BASE = 1U << 0;
+constexpr uint32_t SILENT_REBOOT_READER_HARDCOVER = 1U << 1;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_MAGIC = 0xC1EAB017;
 constexpr uint32_t SILENT_READER_PAGE_BUILD_AUTO_TURN = 1U << 0;
 constexpr uint32_t NETWORK_RENDER_TASK_STACK_BYTES = 8192;
@@ -446,10 +448,11 @@ bool consumeSilentRestartReaderPageBuild(const std::string& bookPath, uint16_t& 
   return true;
 }
 
-static void silentRestartToReaderImpl(const bool cleanImageBaseOnEntry) {
+static void silentRestartToReaderImpl(const bool cleanImageBaseOnEntry, const bool openHardcoverMenu) {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   silentRebootTarget = SILENT_REBOOT_TARGET_READER;
-  silentRebootPayload = cleanImageBaseOnEntry ? SILENT_REBOOT_READER_CLEAN_IMAGE_BASE : 0;
+  silentRebootPayload = (cleanImageBaseOnEntry ? SILENT_REBOOT_READER_CLEAN_IMAGE_BASE : 0) |
+                        (openHardcoverMenu ? SILENT_REBOOT_READER_HARDCOVER : 0);
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=reader cleanImageBase=%d)", cleanImageBaseOnEntry ? 1 : 0);
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
@@ -457,7 +460,9 @@ static void silentRestartToReaderImpl(const bool cleanImageBaseOnEntry) {
   restartWithSilentToken();
 }
 
-void silentRestartToReader(const bool cleanImageBaseOnEntry) { silentRestartToReaderImpl(cleanImageBaseOnEntry); }
+void silentRestartToReader(const bool cleanImageBaseOnEntry, const bool openHardcoverMenu) {
+  silentRestartToReaderImpl(cleanImageBaseOnEntry, openHardcoverMenu);
+}
 
 void silentRestartToNetwork(const NetworkBootTarget target, const uint32_t payload) {
   if (deepSleepInProgress) return;
@@ -1537,13 +1542,35 @@ void setup() {
         break;
       }
       case NetworkBootTarget::HARDCOVER_AUTH: {
-        auto authActivity = makeUniqueNoThrow<HardcoverAuthActivity>(renderer, mappedInputManager);
+        auto authActivity = makeUniqueNoThrow<HardcoverAuthActivity>(renderer, mappedInputManager, static_cast<uint8_t>(snapshotPayload));
         if (authActivity) {
           activityManager.replaceActivity(std::move(authActivity));
           launched = true;
         } else {
           LOG_ERR("MAIN", "OOM: Hardcover auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+      case NetworkBootTarget::HARDCOVER_LIBRARY: {
+        auto library = makeUniqueNoThrow<HardcoverLibraryActivity>(renderer, mappedInputManager, std::string{},
+            HardcoverLibraryActivity::Mode::LibraryNetwork);
+        if (library) { activityManager.replaceActivity(std::move(library)); launched = true; }
+        else LOG_ERR("MAIN", "OOM opening Hardcover library after network boot");
+        break;
+      }
+      case NetworkBootTarget::HARDCOVER_SYNC: {
+        if (APP_STATE.openEpubPath.empty()) {
+          LOG_ERR("MAIN", "Hardcover book sync has no persisted reader path");
+          break;
+        }
+        auto syncActivity = makeUniqueNoThrow<HardcoverLibraryActivity>(
+            renderer, mappedInputManager, APP_STATE.openEpubPath, HardcoverLibraryActivity::Mode::BookSyncNetwork);
+        if (syncActivity) {
+          activityManager.replaceActivity(std::move(syncActivity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: Hardcover book sync activity after minimal boot");
         }
         break;
       }
@@ -1563,12 +1590,21 @@ void setup() {
       }
     }
     if (!launched) {
+      if (snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_SYNC) &&
+          !APP_STATE.openEpubPath.empty()) {
+        LOG_ERR("MAIN", "Hardcover network boot failed; returning to reader with queued updates retained");
+        silentRestartToReader(true);
+      }
       LOG_ERR("MAIN", "Minimal network boot target failed; returning home");
       silentRestart();
     }
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
-    activityManager.goToReader(APP_STATE.openEpubPath, false, false, cleanImageBaseOnEntry);
+    if ((snapshotPayload & SILENT_REBOOT_READER_HARDCOVER) != 0)
+      activityManager.goToReaderAndRunMenuAction(
+          APP_STATE.openEpubPath, static_cast<uint8_t>(EpubReaderMenuAction::HARDCOVER), cleanImageBaseOnEntry);
+    else
+      activityManager.goToReader(APP_STATE.openEpubPath, false, false, cleanImageBaseOnEntry);
   } else if (resume == BootResume::Silent) {
     // target == home (or reader with no open book): land on home — don't fall
     // through to the sleep-wake "resume reader" logic, which fires on stale

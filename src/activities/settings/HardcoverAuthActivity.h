@@ -8,8 +8,8 @@
 
 class HardcoverAuthActivity final : public Activity {
  public:
-  HardcoverAuthActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("HardcoverAuth", renderer, mappedInput) {}
+  HardcoverAuthActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, uint8_t returnContext = 0)
+      : Activity("HardcoverAuth", renderer, mappedInput), returnContext(returnContext) {}
 
   void onEnter() override;
   void onExit() override;
@@ -24,6 +24,7 @@ class HardcoverAuthActivity final : public Activity {
   ScreenTransitionRefresh screenTransitionRefresh;
   std::string statusMessage;
   std::string errorMessage;
+  uint8_t returnContext;
 
   void onWifiSelectionComplete(bool connected);
   void performAuthentication();

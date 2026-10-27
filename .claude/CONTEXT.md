@@ -8,14 +8,12 @@ Refer to https://freeink.org/llms.txt for guidance.
 
 ## Simulator
 
-- Simulator patches belong in the adjacent `crossink-simulator` repo.
-- The valid local simulator env in this repo is `simulator`, and `pio run -e simulator` currently builds cleanly.
-- The simulator `PNGdec` stub in `crossink-simulator/src/PNGdec.h` needs to mirror the real API shape used by app code, including `hasAlpha()` and `getTransparentColor()`, even though decode still fails intentionally.
-- Known simulator limits:
-  - No image rendering: `platformio.ini` ignores `hal`, `PNGdec`, and `JPEGDEC`, so image decoders are intentionally absent.
-  - JPEGDEC stub always fails; `JPEGDEC fallback: open failed (err=-1)` is expected in simulator.
-  - `esp_deep_sleep_start()` is a no-op in simulator.
-  - `HalStorage` uses POSIX file access under `./fs_` and allows multiple readers, unlike real hardware.
+- Reusable simulator changes belong in a separate `crossink-simulator` checkout, not firmware activities.
+- Windows: `simulator.cmd` opens the existing native desktop build; `--build` rebuilds. Portable tools and the patched, pinned simulator checkout live under `.cache`; source adaptations are preserved in `scripts/windows-simulator.patch`. See `docs/simulator.md`.
+- Linux/macOS use the `simulator` PlatformIO environment. Current config opts into native PNG/JPEG decoders; do not assume the older image-less stubs are active.
+- F12 saves desktop BMP captures under `.cache/windows-simulator/screenshots` through SDL's main thread.
+- The simulator uses host RAM/networking and permits multiple readers per file, unlike the C3. Desktop UI success does not validate device heap/TLS or e-ink timing.
+- Native directory position/seek must use `telldir`/`seekdir`; the deferred Library index resumes scans at saved directory positions.
 
 ## Real Hardware / Storage
 

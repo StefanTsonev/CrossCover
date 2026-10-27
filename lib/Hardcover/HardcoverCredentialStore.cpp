@@ -143,7 +143,23 @@ bool HardcoverCredentialStore::importTokenFile() {
   return true;
 }
 
-void HardcoverCredentialStore::setApiToken(const std::string& token) { apiToken = token; }
+void HardcoverCredentialStore::setApiToken(const std::string& token) { apiToken = normalizeToken(token); }
+
+bool HardcoverCredentialStore::saveApiToken(const std::string& token) {
+  const std::string normalized = normalizeToken(token);
+  if (normalized.empty() || normalized.size() > 1024) return false;
+  const std::string previousToken = apiToken;
+  const int previousUserId = userId;
+  const std::string previousUsername = username;
+  apiToken = normalized;
+  userId = 0;
+  username.clear();
+  if (saveToFile()) return true;
+  apiToken = previousToken;
+  userId = previousUserId;
+  username = previousUsername;
+  return false;
+}
 
 void HardcoverCredentialStore::clearApiToken() {
   const std::string previousToken = apiToken;

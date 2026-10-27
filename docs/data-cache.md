@@ -11,6 +11,16 @@ The main data directory is `.crosspoint` on the SD card. It stores render caches
 
 ## Directory Layout
 
+Hardcover book links and queued updates are stored in `.crosspoint/hardcover_links.json` with an atomic backup.
+Each link can also contain `lastSyncedStatusId` (0 means unknown), `lastSyncedRating` (-1 means unknown),
+`lastSyncedProgress` (-1 means unknown), and `remoteTitle`. Older records without these optional fields remain valid.
+Pending values take precedence in the UI and are cleared only after successful API updates and atomic local acknowledgement.
+Opening the in-book menu reads this local state without contacting Hardcover.
+Ratings use JSON numbers in 0.5-star steps (0.5–5.0); existing whole-star records remain compatible.
+Unlinked records may hold queued status, progress, and rating changes. Network linking validates the chosen
+book and reads its existing account state before sending those changes. Discarding a queued change only affects
+the local queue; removing account credentials preserves book links and their queued updates.
+
 ```text
 .crosspoint/
 ├── global_stats.bin        # All-time reading stats, including total books read

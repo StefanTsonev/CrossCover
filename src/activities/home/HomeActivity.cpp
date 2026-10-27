@@ -2364,7 +2364,7 @@ void HomeActivity::onHardcoverOpen() {
 void HomeActivity::onCrossCoverOpen() {
   startActivityForResult(
       std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "CrossCover", StrId::STR_CROSSCOVER,
-                                                std::vector<std::string>{tr(STR_HARDCOVER), tr(STR_SHADOW_LIBRARY)}, 0,
+                                                std::vector<std::string>{tr(STR_HARDCOVER_LIBRARY), tr(STR_SHADOW_LIBRARY)}, 0,
                                                 false, false, false),
       [this](const ActivityResult& result) {
         if (result.isCancelled) return;

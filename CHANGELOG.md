@@ -1,3 +1,43 @@
+## [v1.6.1-crosscover.2] - 2026-10-27
+
+### Added
+
+- Native Windows simulator launcher with project-local portable tools, a virtual SD card, and F12 screenshots for desktop UI testing.
+- Desktop simulator presents the startup frame before Home, allowing clean captures of the real boot screen.
+- Added opt-in Windows simulator smoke-test screenshots for visual reviews of navigation and integration flows.
+
+### Changed
+
+- Replaced the README device photographs with clean simulator screenshots of boot, Hardcover Library, and LibGen.
+- Simplified the in-book Hardcover menu with one status selector, progress queueing, remembered ratings, a combined linking flow, and sync limited to the current book.
+- Hardcover book sync now ends with a dedicated result screen, return-to-book and retry actions, and consistently counts individual completed and pending changes, including book linking.
+- Hardcover updates can be prepared before linking and sent in one network session after confirming the matching book and its existing account state. Queued changes can be reviewed and discarded individually.
+- Hardcover ratings now support half-star steps from 0.5 to 5.0 without treating an unset rating as three stars.
+- Hardcover Library now opens book details and loads ten books per page; the CrossCover Home menu uses its full name.
+- Hardcover account settings show connection state, confirm account removal, and restore the reader's Hardcover menu after authentication from a book.
+- Improved Hardcover setup and reading updates with a local web portal, explicit offline queueing, and edition-aware progress sync.
+- Hardcover library and reader screens now respect the shared safe area, and queued progress is marked in the reader menu.
+- Hardcover authentication transport now matches the established `main` implementation for compatibility.
+- Hardcover screens now follow the existing reader summary and themed list layouts, with author/status subtitles and a separate queued-sync message.
+
+### Fixed
+
+- Hardcover now distinguishes queued progress from the current reading position, uses compact result controls, and shows structured book-link confirmation details.
+- Hardcover account setup hides unavailable actions, queued-change removal names the selected value, and rating choices contain only working half-star values.
+- Hardcover preserves GraphQL error messages and rejects empty mutation acknowledgements instead of reporting success.
+- LibGen retries the failed search or download, preserves the search text, and offers a new search from results.
+- Completed LibGen downloads remain visible with their saved path and an Open action; selecting the same result again does not create a duplicate copy.
+- Sending Hardcover updates from a book now saves the reading position and uses a minimal network boot, freeing the reader before TLS requests and returning to the book on exit.
+- Hardcover sync no longer briefly shows an empty "OK" error screen before Wi-Fi; retries reconnect when needed, cancelled book matching retains the visible queue, and request failures remain visible instead of being overwritten by a reload.
+- Hardcover progress does not fall back to a generic book page count when the active reading edition has no page count.
+- A failed Hardcover progress update no longer prevents independent ratings or updates for other books; connection, authentication and storage failures preserve the remaining queue.
+- Rating a Hardcover book preserves its reading status, and successful sync screens no longer show selection controls without selectable actions.
+- Marking a Hardcover book as read no longer forces 100% progress; unchanged actions are not queued again, and confirmed state is saved together with queue acknowledgements.
+- Hardcover sync and queued-update feedback now use one screen state and a persistent result line, preventing overlapping notifications and redundant display refreshes.
+- Hardcover mutation-level failures no longer count as successful updates.
+- ISBN linking now resolves a specific edition so progress uses its own page count; manual relinking clears stale edition metadata.
+- Hardcover portal key changes are accepted only from the device's local origin and the key is never returned to the browser.
+
 ## [v1.6.1-crosscover.1] - 2026-10-07
 
 ### Added

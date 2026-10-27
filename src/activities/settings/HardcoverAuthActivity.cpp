@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 
 #include <cstdio>
 
@@ -35,7 +36,15 @@ void HardcoverAuthActivity::onEnter() {
     return;
   }
 
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+  auto wifi = makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput);
+  if (!wifi) {
+    LOG_ERR("HDC", "OOM opening authentication Wi-Fi");
+    state = FAILED;
+    errorMessage = tr(STR_MEMORY_ERROR);
+    requestUpdate();
+    return;
+  }
+  startActivityForResult(std::move(wifi),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
 }
 
@@ -70,6 +79,10 @@ void HardcoverAuthActivity::performAuthentication() {
           static_cast<unsigned>(maxAllocBefore));
 
   const HardcoverClient::Error result = HardcoverClient::authenticate();
+  if (result == HardcoverClient::AUTH_FAILED && HARDCOVER_STORE.getUserId() > 0) {
+    HARDCOVER_STORE.setUserInfo(0, "");
+    if (!HARDCOVER_STORE.saveToFile()) LOG_ERR("HDC", "Could not save invalidated account state");
+  }
   const uint32_t freeAfter = ESP.getFreeHeap();
   const uint32_t maxAllocAfter = ESP.getMaxAllocHeap();
   LOG_INF("HDC", "Authentication finished result=%u free=%u maxAlloc=%u", static_cast<unsigned>(result),
@@ -98,7 +111,12 @@ void HardcoverAuthActivity::performAuthentication() {
 void HardcoverAuthActivity::onExit() {
   Activity::onExit();
   HardcoverClient::shutdownNetwork();
-  silentRestart();
+  if (returnContext == 1)
+    silentRestartToReader(true, true);
+  else if (returnContext == 2)
+    silentRestartToNetwork(NetworkBootTarget::HARDCOVER_LIBRARY);
+  else
+    silentRestart();
 }
 
 void HardcoverAuthActivity::loop() {
@@ -106,8 +124,7 @@ void HardcoverAuthActivity::loop() {
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (TouchHeaderBackButton::wasTapped(mappedInput, header) ||
-      mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     finishAfterBackPress();
   }
 }
@@ -140,7 +157,9 @@ void HardcoverAuthActivity::render(RenderLock&&) {
                                      true, EpdFontFamily::REGULAR, 4);
   }
 
-  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_OK), "", "");
+  const bool settled = state == SUCCESS || state == FAILED;
+  const auto labels =
+      mappedInput.mapLabels(settled ? (returnContext == 1 ? tr(STR_BACK) : tr(STR_BACK)) : "", "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
 }

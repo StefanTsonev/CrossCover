@@ -15,6 +15,7 @@ build
 /.cache
 .history/
 /.venv
+/.pio-core312/
 *.local*
 fs_/
 /site/node_modules/

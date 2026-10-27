@@ -6,6 +6,51 @@ let allSettings = [];
     QUICK_RESUME: 6
   };
 
+  async function loadHardcoverAccount() {
+    const state = document.getElementById('hardcover-account-state');
+    if (!state) return;
+    try {
+      const response = await fetch('/api/hardcover');
+      if (!response.ok) throw new Error('Could not read Hardcover status');
+      const account = await response.json();
+      state.textContent = account.username ? 'Connected as @' + account.username :
+        (account.hasToken ? 'Key saved. Authenticate it on the device.' : 'Not connected');
+    } catch (error) {
+      state.textContent = error.message;
+    }
+  }
+
+  async function saveHardcoverToken() {
+    const input = document.getElementById('hardcover-token');
+    const token = input.value.trim();
+    if (!token) return showMessage('Paste a Hardcover key first.', true);
+    try {
+      const response = await fetch('/api/hardcover/token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not save key');
+      input.value = '';
+      showMessage('Key saved. Authenticate it on the device.', false);
+      await loadHardcoverAccount();
+    } catch (error) { showMessage(error.message, true); }
+  }
+
+  async function clearHardcoverToken() {
+    if (!confirm('Disconnect Hardcover on this device?')) return;
+    try {
+      const response = await fetch('/api/hardcover/token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clear: true })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not disconnect');
+      showMessage('Hardcover disconnected.', false);
+      await loadHardcoverAccount();
+    } catch (error) { showMessage(error.message, true); }
+  }
+
   function escapeHtml(unsafe) {
     return unsafe
       .replaceAll("&", "&amp;")
@@ -242,6 +287,8 @@ let allSettings = [];
         '<div class="card"><p style="text-align:center;color:#e74c3c;">Failed to load settings</p></div>';
     }
   }
+
+  loadHardcoverAccount();
 
   async function saveSettings() {
     const btn = document.getElementById('saveBtn');

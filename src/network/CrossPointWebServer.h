@@ -155,4 +155,9 @@ class CrossPointWebServer {
   void handleGetWifiNetworks() const;
   void handlePostWifiNetwork();
   void handleDeleteWifiNetwork();
+
+  // Local-only Hardcover setup endpoints. The token is never returned by GET.
+  bool isLocalHardcoverSetupRequest() const;
+  void handleGetHardcoverAccount() const;
+  void handlePostHardcoverToken();
 };

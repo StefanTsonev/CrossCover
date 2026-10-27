@@ -1010,9 +1010,10 @@ void ActivityManager::goToReader(std::string path, const bool suppressBackReleas
                                                    allowFastInitialRefresh, cleanImageBaseOnEntry));
 }
 
-void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t action) {
+void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t action,
+                                                 const bool cleanImageBaseOnEntry) {
   pendingReaderMenuAction = action;
-  goToReader(std::move(path));
+  goToReader(std::move(path), false, false, cleanImageBaseOnEntry);
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {

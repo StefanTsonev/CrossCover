@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <memory>
 
 #include "activities/Activity.h"
@@ -9,7 +10,7 @@
 /** Search and download books from the LibGen HTML catalog through the relay. */
 class ShadowLibraryActivity final : public Activity {
  public:
-  enum class State { CHECK_WIFI, WIFI_SELECTION, SEARCH_INPUT, SEARCHING, BROWSING, DOWNLOADING, ERROR };
+  enum class State { CHECK_WIFI, WIFI_SELECTION, SEARCH_INPUT, SEARCHING, BROWSING, DOWNLOADING, COMPLETED, ERROR };
 
   explicit ShadowLibraryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("ShadowLibrary", renderer, mappedInput) {}
@@ -37,6 +38,14 @@ class ShadowLibraryActivity final : public Activity {
   size_t downloadProgress = 0;
   size_t downloadTotal = 0;
   ButtonNavigator buttonNavigator;
+  enum class Request { None, Search, Download };
+  Request lastRequest = Request::None;
+  // Keyboard input is limited to 96 bytes; retain it without a growing heap buffer.
+  std::array<char, 97> lastQuery{};
+  std::string downloadedPath;
+  int completedIndex = -1;
+  bool openAfterExit = false;
+  void continueRequest();
 
   void checkAndConnectWifi();
   void launchWifiSelection();

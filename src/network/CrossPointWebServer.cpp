@@ -28,6 +28,7 @@
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
+#include "HardcoverCredentialStore.h"
 #include "WifiCredentialStore.h"
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "components/HeaderDate.h"
@@ -417,12 +418,15 @@ void CrossPointWebServer::begin() {
   server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
   server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
   server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+  server->on("/api/hardcover", HTTP_GET, [this] { handleGetHardcoverAccount(); });
+  server->on("/api/hardcover/token", HTTP_POST, [this] { handlePostHardcoverToken(); });
 
   server->onNotFound([this] { handleNotFound(); });
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match"};
-  server->collectHeaders(davHeaders, 7);
+  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "If-None-Match",
+                              "Origin", "Host"};
+  server->collectHeaders(davHeaders, 9);
   server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
 
   server->begin();
@@ -2490,4 +2494,51 @@ void CrossPointWebServer::handleFontDelete() {
     server->send(500, "application/json", "{\"error\":\"Delete failed\"}");
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
+}
+
+bool CrossPointWebServer::isLocalHardcoverSetupRequest() const {
+  const String origin = server->header("Origin");
+  const String host = server->header("Host");
+  const IPAddress deviceIp = apMode ? WiFi.softAPIP() : WiFi.localIP();
+  const String address = deviceIp.toString();
+  const String expectedOrigin = String("http://") + address;
+  return origin == expectedOrigin && (host == address || host == address + ":80");
+}
+
+void CrossPointWebServer::handleGetHardcoverAccount() const {
+  HARDCOVER_STORE.loadFromFile();
+  JsonDocument doc;
+  doc["hasToken"] = HARDCOVER_STORE.hasApiToken();
+  doc["username"] = HARDCOVER_STORE.getUsername();
+  String response;
+  serializeJson(doc, response);
+  server->send(200, "application/json", response);
+}
+
+void CrossPointWebServer::handlePostHardcoverToken() {
+  if (!isLocalHardcoverSetupRequest()) {
+    server->send(403, "application/json", "{\"error\":\"Use the device's local web portal\"}");
+    return;
+  }
+  if (!server->hasArg("plain") || server->arg("plain").length() > 2048) {
+    server->send(400, "application/json", "{\"error\":\"Missing or oversized request\"}");
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, server->arg("plain"))) {
+    server->send(400, "application/json", "{\"error\":\"Invalid request\"}");
+    return;
+  }
+  if (doc["clear"] | false) {
+    HARDCOVER_STORE.clearApiToken();
+    server->send(200, "application/json", "{\"ok\":true,\"hasToken\":false}");
+    return;
+  }
+  const char* token = doc["token"] | "";
+  if (!token[0] || !HARDCOVER_STORE.saveApiToken(token)) {
+    server->send(400, "application/json", "{\"error\":\"Could not save the API key\"}");
+    return;
+  }
+  LOG_INF("WEB", "Hardcover API key saved from the local portal");
+  server->send(200, "application/json", "{\"ok\":true,\"hasToken\":true}");
 }
