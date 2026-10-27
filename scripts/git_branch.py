@@ -1,7 +1,7 @@
 """
 PlatformIO pre-build script: inject git info into version defines.
 
-  default:       1.1.0-dev+<branch>  (local development builds)
+  default:       configured version from platformio.ini
   production:    1.1.0               (when $CROSSINK_RELEASE_VERSION is set)
   RC:            1.1.0-<hash>-RC      (when $CROSSINK_RC_HASH is set)
   test & debug:          1.2.6-<branch>+<5-char-hash>
@@ -145,11 +145,7 @@ def get_hardware_version(project_dir, pioenv):
         return get_release_candidate_version(project_dir)
 
     if pioenv == 'default':
-        if os.environ.get('CROSSINK_RELEASE_VERSION'):
-            return get_production_version(project_dir)
-        base_version = get_crossink_version(project_dir)
-        branch = get_git_branch(project_dir)
-        return f'{base_version}-dev+{branch}'
+        return get_production_version(project_dir)
 
     base_version = (
         get_production_version(project_dir)
