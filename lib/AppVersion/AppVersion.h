@@ -6,10 +6,6 @@
 #define CROSSINK_VERSION "dev"
 #endif
 
-#ifndef CROSSINK_DISPLAY_VERSION
-#define CROSSINK_DISPLAY_VERSION "1.6.1-crosscover.1"
-#endif
-
 #ifndef CROSSINK_GIT_SHA
 #define CROSSINK_GIT_SHA "unknown"
 #endif
