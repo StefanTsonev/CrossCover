@@ -52,6 +52,17 @@ class ZipFile {
   friend class ZipFileStreamReader;
 
  public:
+  struct RawEntry {
+    uint32_t offset = 0;
+    uint32_t compressed = 0;
+    uint32_t size = 0;
+    uint32_t crc = 0;
+    uint16_t method = 0;
+  };
+  // One bounded central-directory pass, with validated local-header offsets.
+  // Callback names are valid only during the call. No inflation or payload copy.
+  bool visitRawEntries(void* context, bool (*visitor)(void*, std::string_view, const RawEntry&),
+                       bool (*select)(void*, std::string_view) = nullptr);
   struct FileStatSlim {
     uint16_t method;             // Compression method
     uint32_t compressedSize;     // Compressed size

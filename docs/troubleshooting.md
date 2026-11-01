@@ -63,3 +63,14 @@ This document shows common issues and possible solutions while using the device 
 2. Select **Yes** to remove the saved password
 3. Reconnect and enter the password again
 4. Choose to save the new password
+
+## Story So Far
+
+- **No completed chapters / unsupported boundaries:** finish at least one supported chapter. The whole current chapter is excluded; unsupported or ambiguous divisions are not guessed.
+- **Minute limit:** wait for the displayed provider-supplied interval, if present, before another attempt. If no interval is given, try again later.
+- **Daily limit:** try after the provider resets its quota. Saved recaps still open offline.
+- **Busy / interrupted upload:** use Retry after a short wait. Completed compressed members and durable checkpoints are reused when retained by the bounded cache.
+- **Missing setup:** normal firmware needs no manual SD setup. If custom `recap.json` or `recap-ca.pem` overrides are present, check them or restore the built-in service by removing only those overrides.
+- **Unexpected old recap after replacing an EPUB:** local cache identity is metadata/path based. Remove only the affected `recap-<hash>.json` result cache; do not delete the whole `.crosspoint` folder, which also holds reading progress and settings.
+
+See [Story So Far](./story-so-far.md) for the data sent to the service, limits and serial diagnostics.

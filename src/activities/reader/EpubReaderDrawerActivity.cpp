@@ -1757,6 +1757,9 @@ void EpubReaderDrawerActivity::activateRow(const RowId row) {
     case RowId::ResetBookReaderSettings:
       closeAndReturn(false, EpubReaderMenuAction::RESET_BOOK_READER_SETTINGS);
       return;
+    case RowId::StorySoFar:
+      closeAndReturn(false, EpubReaderMenuAction::STORY_SO_FAR);
+      return;
     case RowId::Hardcover:
       closeAndReturn(false, EpubReaderMenuAction::HARDCOVER);
       return;
@@ -3030,6 +3033,8 @@ const char* EpubReaderDrawerActivity::rowLabel(const RowId row) const {
       return tr(STR_EPUB_RENDER_MODE);
     case RowId::IndexingMethod:
       return tr(STR_INDEXING_METHOD);
+    case RowId::StorySoFar:
+      return tr(STR_STORY_SO_FAR);
     case RowId::Hardcover:
       return tr(STR_HARDCOVER);
     case RowId::ToggleCompleted:
@@ -3191,6 +3196,7 @@ bool EpubReaderDrawerActivity::rowShowsNavigationCaret(const RowId row) const {
     case RowId::DeleteCache:
     case RowId::DeleteStats:
     case RowId::SyncProgress:
+    case RowId::StorySoFar:
     case RowId::NearbyPositionSync:
     case RowId::SendNearbyBook:
       return false;

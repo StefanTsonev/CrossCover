@@ -17,6 +17,7 @@ enum class NetworkBootTarget : uint32_t {
   HARDCOVER_AUTH = 8,
   HARDCOVER_SYNC = 9,
   HARDCOVER_LIBRARY = 10,
+  RECAP = 11,
 };
 
 constexpr bool isNetworkBootTargetValue(const uint32_t value) {
@@ -29,6 +30,7 @@ constexpr bool isNetworkBootTargetValue(const uint32_t value) {
     case NetworkBootTarget::MANAGE_FONTS:
     case NetworkBootTarget::HARDCOVER_AUTH:
     case NetworkBootTarget::HARDCOVER_SYNC:
+    case NetworkBootTarget::RECAP:
     case NetworkBootTarget::HARDCOVER_LIBRARY:
       return true;
   }
@@ -43,7 +45,8 @@ static_assert(isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::MANAGE_FONTS)) &&
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_AUTH)) &&
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_SYNC)) &&
-                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_LIBRARY)),
+                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::HARDCOVER_LIBRARY)) &&
+                  isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::RECAP)),
               "Every network boot target must pass RTC target validation");
 
 void silentRestart();  // home screen

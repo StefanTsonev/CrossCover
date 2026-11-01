@@ -65,6 +65,12 @@ the local queue; removing account credentials preserves book links and their que
 
 Four-tone sleep covers use separate `_absolute.bmp` files so older cover shading is not reused. These are generated on demand for supported displays; TXT/Markdown JPG covers also use a separate `cover_absolute.bmp`. Existing cover and thumbnail caches remain available, and no manual cache reset is needed.
 
+## Story So Far data
+
+Story So Far does not make a second copy of the EPUB on the SD card. It stores `recap-request.json` (the current handoff), `recap-device.json` (an automatically created non-secret upload identifier), and `recap-<hash>.json` result caches of at most 8 KiB each. Deleting a result cache means it must be requested again; it does not delete reading progress. The temporary `recap-upload.json` descriptor list is removed after a transfer attempt; an interrupted power cycle may leave it until the next attempt.
+
+The service URL and TLS root certificate are compiled into firmware. `recap.json` and `recap-ca.pem` are optional overrides for custom services. The bounded server cache contains uploaded compressed text members, not additional SD copies. See [Story So Far](./story-so-far.md).
+
 ## Clearing Cache Data
 
 Deleting the entire `.crosspoint` directory resets caches, settings, saved network/server data, bookmarks, recent books, reading progress, and reading stats.

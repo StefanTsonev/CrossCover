@@ -46,6 +46,8 @@
 #include "FocusReadingText.h"
 #include "GlobalActions.h"
 #include "HardcoverBookActivity.h"
+#include "RecapActivity.h"
+#include <RecapClient.h>
 #include "activities/home/HardcoverLibraryActivity.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
@@ -4159,6 +4161,22 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       }
       break;
     }
+    case EpubReaderMenuAction::STORY_SO_FAR: {
+      if (!epub || !saveReadingProgress()) {
+        drawToast(renderer, tr(STR_SAVE_PROGRESS_FAILED));
+        break;
+      }
+      if (!Recap::prepare(*epub, currentSpineIndex)) {
+        LOG_ERR("RECAP", "No safe completed-chapter boundary or metadata could not be saved");
+        drawToast(renderer, tr(STR_RECAP_UNSUPPORTED));
+        requestUpdate();
+        break;
+      }
+      auto recap = makeUniqueNoThrow<RecapActivity>(renderer, mappedInput);
+      if (recap) startActivityForResult(std::move(recap), [this](const ActivityResult&) { requestUpdate(); });
+      else { LOG_ERR("RECAP", "OOM opening recap"); drawToast(renderer, tr(STR_MEMORY_ERROR)); }
+      break;
+    }
     case EpubReaderMenuAction::HARDCOVER:
       openHardcoverMenu();
       break;
@@ -5670,6 +5688,9 @@ void EpubReaderActivity::openHardcoverMenu() {
                                               epub ? epub->getAuthor() : std::string{}, progressPercent),
       [this](const ActivityResult& result) {
         const auto* sync = std::get_if<HardcoverResult>(&result.data);
+        // Hardcover closes on Back press. Consume the rest of that gesture
+        // using the reader's existing guard, including its long-press action.
+        if (mappedInput.isPressed(MappedInputManager::Button::Back)) longPressBackHandled = true;
         if (!result.isCancelled && sync && epub) {
           if (!saveReadingProgress()) {
             LOG_ERR("HDC", "Aborting book sync because reader progress could not be saved");

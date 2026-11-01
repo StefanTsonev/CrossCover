@@ -922,6 +922,8 @@ CrossCover also adds **Hardcover** to the bookmark-icon tab (called **Location**
 in the menu model), immediately after **Sync Progress** on X3/X4. It opens book
 linking, progress updates, read status, and rating actions.
 
+**Story So Far** appears immediately after Hardcover in the same tab. It creates a short AI recap from completed EPUB chapters, excluding the entire current chapter. Confirm once and connect to Wi-Fi; the device saves your position before the network session. Existing recaps open offline. Back returns to the book, and temporary failures offer Retry. No personal key or manual SD configuration is required. The service is shared, quotas apply, and AI can make mistakes. See [Story So Far](./story-so-far.md) for privacy and supported chapter boundaries.
+
 **Reset Book Reader Settings** restores the current EPUB's inherited global
 reader defaults without deleting progress, bookmarks, clippings, or stats.
 **Delete Book Cache** rebuilds cached book data and keeps those reader choices.

@@ -1,0 +1,1 @@
+{"name":"crosscover-recap","private":true,"type":"module","scripts":{"test":"node --test test/*.test.mjs","dev":"wrangler dev","deploy":"wrangler deploy"},"devDependencies":{"wrangler":"^4.156.0"},"dependencies":{"@xmldom/xmldom":"^0.9.12"}}

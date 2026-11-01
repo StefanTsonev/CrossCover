@@ -8,6 +8,13 @@ MARKER = "/* CrossPoint wolfSSL compatibility overrides */"
 OVERRIDES = f"""
 
 {MARKER}
+/* Verified Cloudflare certificate chains include SHA-384 signatures (WE1).
+   options.h is intentionally bypassed by WOLFSSL_OPTIONS_H, so Arduino's
+   user_settings.h must explicitly enable this hash. SHA-384 shares sha512.c;
+   enabling SHA-384 alone avoids adding unused SHA-512 digest variants. */
+#ifndef WOLFSSL_SHA384
+#define WOLFSSL_SHA384
+#endif
 #undef NO_DH
 #ifndef HAVE_FFDHE_2048
 #define HAVE_FFDHE_2048

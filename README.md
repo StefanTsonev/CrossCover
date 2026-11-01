@@ -2,18 +2,20 @@
 
 CrossCover is a personal firmware fork based on [CrossInk](https://github.com/uxjulia/CrossInk) for the Xteink X3 and X4.
 
-CrossCover adds Hardcover integration and a LibGen client
-while retaining the CrossInk reader foundation.
+CrossCover adds Hardcover integration, a LibGen client, and experimental
+Story So Far recaps while retaining the CrossInk reader foundation.
 
-- Current release: `1.6.1-crosscover.2`
+- Current release: `1.6.1-crosscover.3`
 - Based on CrossInk: `1.6.1`
 
 ## Screenshots
 
 <p align="center">
-  <img src="boot.png" alt="CrossCover boot screen" width="32%">
-  <img src="library.png" alt="CrossCover Hardcover library" width="32%">
-  <img src="shadow.png" alt="CrossCover LibGen search results" width="32%">
+  <img src="boot.png" alt="CrossCover boot screen" width="45%">
+  <img src="library.png" alt="CrossCover Hardcover library" width="45%">
+  <br>
+  <img src="shadow.png" alt="CrossCover LibGen search results" width="45%">
+  <img src="story-so-far.png" alt="Story So Far recap of Alice's Adventures in Wonderland through Down the Rabbit-Hole" width="45%">
 </p>
 
 ## ⚠️ Important hardware warning
@@ -56,6 +58,23 @@ The in-book menu shows state saved on the device, including pending changes; it 
 - Use a lightweight relay so the device receives only compact search results
 
 Search and downloads use the CrossCover Worker relay and LibGen's `ads.php` → `get.php` download chain. Use the feature only for books you are legally allowed to access or download.
+
+### Story So Far
+
+- Open an EPUB's reader menu, select the bookmark-icon **Location** tab, then **Story So Far**, immediately after Hardcover
+- Create a short AI recap of completed chapters in the book's language
+- Exclude the entire current chapter and all later chapters from model input
+- Confirm once, connect to Wi-Fi, and return to the saved reading position afterward
+- Reopen saved recaps offline, with page navigation when needed
+- Upload only required compressed text files and edition metadata; images, fonts and future chapter payloads are skipped
+- Reuse a bounded server cache so later recaps send only missing files
+- See separate messages for temporary minute limits, daily quotas and other service failures
+
+The public recap service address and TLS certificate are included in firmware. No personal API key or manual SD setup is needed. The device automatically creates a non-secret upload identifier. The Gemini API key stays on the server, and the service's provider quota is shared by all users.
+
+Story So Far uses Gemini 3.5 Flash-Lite. Only extracted completed text, the book title and language are sent to the model; internet search is not used. The service receives edition metadata to check chapter order. AI may make mistakes. Free-tier provider processing may use submitted text to improve products; use the service only for books you are entitled to process.
+
+This feature is experimental and EPUB-only. Unsupported chapter boundaries are rejected rather than guessed. New recaps require Wi-Fi; saved recaps remain on the SD card. See [Story So Far](docs/story-so-far.md) for limits, privacy, cache behavior and optional custom-service setup.
 
 ## Hardcover setup
 
@@ -139,19 +158,13 @@ Before flashing, verify:
 
 CrossCover follows the upstream CrossInk version and adds a fork-specific suffix.
 
-Example:
-
-```text
-1.6.1-crosscover.2
-```
-
-This means CrossCover release `2` based on CrossInk `1.6.1`.
-
-Another CrossCover release based on the same CrossInk version would increment the suffix:
+Current version:
 
 ```text
 1.6.1-crosscover.3
 ```
+
+This means CrossCover release `3` based on CrossInk `1.6.1`. The next release on the same upstream base would be `1.6.1-crosscover.4`.
 
 CrossCover is an independent personal fork and is not an official CrossInk release.
 
@@ -166,6 +179,8 @@ CrossCover is an independent personal fork and is not an official CrossInk relea
 - LibGen search and downloads depend on the availability of the LibGen catalog and its file mirrors
 - The current search flow is limited to EPUB results
 - Downloads may fail when all upstream mirrors are unavailable
+- Story So Far is experimental, requires supported EPUB chapter boundaries, and can produce inaccurate recaps
+- New recaps depend on the shared service and its provider quota; supported limits are documented in the Story So Far guide
 
 ## Credits
 

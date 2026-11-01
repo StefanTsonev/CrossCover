@@ -16,6 +16,7 @@ enum class EpubReaderMenuAction : uint8_t {
   GO_HOME,
   SYNC,
   HARDCOVER,
+  STORY_SO_FAR,
   NEARBY_POSITION_SYNC,
   SEND_NEARBY_BOOK,
   DELETE_STATS,
@@ -152,6 +153,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   NearbyPositionSync,
   SendNearbyBook,
   Hardcover,
+  StorySoFar,
 };
 
 struct ReaderDrawerAvailability {
@@ -221,6 +223,7 @@ constexpr ReaderDrawerCatalog makeReaderDrawerCatalog(const ReaderDrawerAvailabi
     location.add(ReaderDrawerCatalogItem::SyncProgress);
   }
   location.add(ReaderDrawerCatalogItem::Hardcover);
+  location.add(ReaderDrawerCatalogItem::StorySoFar);
   if (available.buttonDevice) {
     location.add(ReaderDrawerCatalogItem::NearbyPositionSync);
     location.add(ReaderDrawerCatalogItem::SendNearbyBook);

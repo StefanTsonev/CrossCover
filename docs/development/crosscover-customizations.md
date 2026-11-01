@@ -66,6 +66,16 @@ Required behavior:
 - API credentials remain stored/importable through the existing CrossCover path.
 - Progress and other updates remain queued where the device is offline.
 
+### Story So Far
+
+Purpose: optional, user-triggered AI recaps of completed EPUB chapters.
+
+Review `lib/Recap/`, the raw-entry API in `lib/ZipFile/`, `lib/hal/HalHttpUpload.h`, `RecapActivity`, the reader Location action, minimal network boot target 11, and `recap-worker/` after upstream merges. Keep the complete current chapter outside model input, including split chapters. The Worker must independently validate the edition boundary before generation.
+
+Transfers copy only selected original compressed ZIP members through a 4 KiB device buffer and reuse verified TLS. Preserve SHA-256/CRC checks, checkpoint recovery, shared multi-book caching, reservations across overlapping plans, and provider quota feedback. Public service access requires no personal tokens; the device ID separates upload sessions and the Gemini API key stays server-side. Preserve offline recap access and returning to the saved reader position.
+
+The recap Worker is deployed separately from firmware and from the LibGen relay. Keep legacy protocol 2 compatible while firmware uses protocol 3. See [Story So Far](../story-so-far.md) for setup, privacy, resource limits and tests.
+
 ### LibGen
 
 Purpose: low-memory search and download through the CrossCover Cloudflare
@@ -131,6 +141,7 @@ These are product decisions, not merge conflicts to be removed:
 
 - Hardcover integration and its UI/actions.
 - LibGen relay integration and download-folder setting.
+- Story So Far, its EPUB boundary checks, public recap service and offline cache.
 - CrossCover branding and release metadata.
 - CrossCover-specific menu grouping and the hidden `selected` marker in the
   provider picker.
@@ -152,7 +163,7 @@ For each new upstream release:
 7. Run clang-format, default static analysis, and the default firmware build.
    Run the simulator on Linux, macOS, or WSL with SDL2 when the change affects
    simulator-facing code.
-8. Flash X3 and X4 as applicable and test the exact Hardcover, LibGen,
+8. Flash X3 and X4 as applicable and test the exact Hardcover, LibGen, Story So Far,
    dictionary, boot branding, and Settings paths.
 9. Add a changelog section naming both the upstream base and CrossCover changes.
 10. Merge to `main`, tag the CrossCover release, publish artifacts, and delete

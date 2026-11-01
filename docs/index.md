@@ -6,7 +6,7 @@ nav_order: 1
 # CrossCover
 
 CrossCover is an Xteink X3/X4 firmware based on CrossInk. It adds Hardcover
-integration and a LibGen client while retaining the
+integration, a LibGen client, and experimental Story So Far recaps while retaining the
 upstream reader and device functionality.
 
 [View CrossCover on GitHub](https://github.com/StefanTsonev/CrossCover)
@@ -17,6 +17,7 @@ upstream reader and device functionality.
 - [User Guide](./user-guide.md)
 - [SD Card Fonts](./sd-card-fonts.md)
 - [Reader Features](./reader-features.md)
+- [Story So Far](./story-so-far.md)
 - [Dictionary](./dictionary.md)
 - [Controls](./controls.md)
 - [Reading Stats Sync](./reading-stats-sync.md)

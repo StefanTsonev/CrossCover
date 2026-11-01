@@ -1,3 +1,26 @@
+## [v1.6.1-crosscover.3] - 2026-11-01
+
+### Added
+
+- Experimental Story So Far for EPUB books: short AI recaps of completed chapters, with the entire current chapter excluded and saved recaps available offline.
+- Public Gemini 3.5 Flash-Lite recap service with the address and TLS certificate included in firmware, requiring no personal API key or manual SD setup.
+- Clear preparation, upload and generation stages, a single standard confirmation, recap page counts, and retry actions for temporary failures.
+- Separate messages for minute and daily provider quotas, with an explicit retry delay when supplied and a generic fallback when the limit is unknown.
+
+### Changed
+
+- README screenshots now include a real Story So Far recap of Alice's Adventures in Wonderland, arranged in a two-by-two gallery.
+- Story So Far sends only required original compressed text files and edition metadata, skipping images, fonts and future chapter payloads. A bounded multi-book server cache requests only missing files for later recaps.
+- Recap transfers reuse a verified TLS connection and a 4 KiB buffer on X3/X4, temporarily disable Wi-Fi modem sleep, and limit progress redraws to changed percentages at five-second intervals.
+
+### Fixed
+
+- Returning from the in-book Hardcover menu no longer passes the same Back gesture to the reader and accidentally exits the book.
+- Cloudflare certificate verification supports SHA-384, fixing wolfSSL error -232.
+- Chapter-boundary handling excludes all files of a split current chapter and accepts leading contents links outside the reading spine without guessing unresolved story boundaries.
+- Interrupted uploads resume from durable checkpoints; corrupted files and invalid boundaries cannot reach AI generation.
+- Overlapping uploads reserve cache capacity without double-counting identical files; per-book and global limits are checked again before publication.
+
 ## [v1.6.1-crosscover.2] - 2026-10-27
 
 ### Added

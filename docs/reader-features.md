@@ -40,6 +40,14 @@ For books that are slow to index or fail because of complex publisher styling,
 see [EPUB Indexing Methods](./epub-indexing.md) and
 [EPUB Render Modes](./epub-render-modes.md).
 
+## Story So Far (CrossCover)
+
+For EPUBs, open the bookmark-icon **Location** tab and choose **Story So Far**, after Hardcover. Confirm once to create a short recap of completed chapters. The whole current chapter is excluded. New recaps require Wi-Fi; saved recaps open offline. The firmware includes the service configuration and automatically creates its upload identifier.
+
+The screen distinguishes preparation, upload and generation, then shows the completed-chapter boundary and recap pages. Back returns to reading. Temporary failures offer Retry, and provider quota errors distinguish minute and daily limits when identified. Unsupported chapter structures are rejected rather than guessed. AI can make mistakes.
+
+See the [Story So Far guide](./story-so-far.md) for privacy, shared quotas, supported boundaries and cache limits.
+
 ## Focus Reading
 
 Focus Reading is a reading aid that bolds the first portion of each word,

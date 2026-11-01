@@ -16,6 +16,7 @@ build
 .history/
 /.venv
 /.pio-core312/
+/.wrangler/
 *.local*
 fs_/
 /site/node_modules/

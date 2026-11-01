@@ -519,6 +519,62 @@ bool ZipFile::getInflatedFileSize(const char* filename, size_t* size) {
   return true;
 }
 
+bool ZipFile::visitRawEntries(void* context, bool (*visitor)(void*, std::string_view, const RawEntry&),
+                              bool (*select)(void*, std::string_view)) {
+  const ScopedOpenClose zip{*this};
+  if (!zip || !visitor || !loadZipDetails() || !zipDetails.totalEntries || zipDetails.totalEntries > 2048 ||
+      file.size() > UINT32_MAX || zipDetails.centralDirOffset >= file.size())
+    return false;
+  // A path may be 1024 bytes; allocate once rather than growing strings or
+  // placing this scratch buffer on the small reader/network task stack.
+  auto name = makeUniqueNoThrow<char[]>(1025);
+  if (!name) {
+    LOG_ERR("ZIP", "OOM allocating raw-entry name scratch");
+    return false;
+  }
+  const auto u16 = [](const uint8_t* p) { return uint16_t(p[0] | uint16_t(p[1]) << 8); };
+  const auto u32 = [](const uint8_t* p) {
+    return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+  };
+  uint32_t position = zipDetails.centralDirOffset;
+  uint8_t header[46];
+  for (unsigned i = 0; i < zipDetails.totalEntries; ++i) {
+    if (!file.seek(position) || file.read(header, sizeof(header)) != sizeof(header) || u32(header) != 0x02014b50)
+      return false;
+    const uint16_t flags = u16(header + 8), length = u16(header + 28);
+    const uint64_t next = uint64_t(position) + 46 + length + u16(header + 30) + u16(header + 32);
+    const uint32_t local = u32(header + 42);
+    RawEntry entry{0, u32(header + 20), u32(header + 24), u32(header + 16), u16(header + 10)};
+    if (!length || length > 1024 || next > file.size() || flags & 1 || u16(header + 34) ||
+        local >= zipDetails.centralDirOffset || zipDetails.centralDirOffset - local < 30 ||
+        file.read(name.get(), length) != length)
+      return false;
+    name[length] = '\0';
+    if (std::memchr(name.get(), '\0', length)) return false;
+    // Unselected assets need no local-header seek: a large image/font-heavy
+    // archive still costs one sequential directory pass plus selected members.
+    if (select && !select(context, std::string_view(name.get(), length))) {
+      position = static_cast<uint32_t>(next);
+      continue;
+    }
+    if (!file.seek(local) || file.read(header, 30) != 30 || u32(header) != 0x04034b50 || u16(header + 6) != flags ||
+        u16(header + 8) != entry.method || u16(header + 26) != length)
+      return false;
+    const uint64_t data = uint64_t(local) + 30 + length + u16(header + 28);
+    if (data > zipDetails.centralDirOffset || entry.compressed > zipDetails.centralDirOffset - data) return false;
+    // Reuse header scratch for exact local-name comparison.
+    for (size_t n = 0; n < length;) {
+      const size_t take = std::min(sizeof(header), size_t(length) - n);
+      if (file.read(header, take) != static_cast<int>(take) || std::memcmp(header, name.get() + n, take)) return false;
+      n += take;
+    }
+    entry.offset = static_cast<uint32_t>(data);
+    if (!visitor(context, std::string_view(name.get(), length), entry)) return false;
+    position = static_cast<uint32_t>(next);
+  }
+  return true;
+}
+
 int ZipFile::fillUncompressedSizes(const SizeTarget* targets, const size_t targetCount, uint32_t* sizes,
                                    const size_t sizeCount) {
   if (targets == nullptr || sizes == nullptr || targetCount == 0) {

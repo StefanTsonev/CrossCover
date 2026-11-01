@@ -191,6 +191,7 @@ class Epub {
   BookMetadataCache::TocEntry getTocItem(int tocIndex) const;
   int getSpineItemsCount() const;
   int getTocItemsCount() const;
+  bool getPackageDocumentPath(std::string& path) const { return findContentOpfFile(&path); }
   int getSpineIndexForTocIndex(int tocIndex) const;
   int getTocIndexForSpineIndex(int spineIndex) const;
   bool isNavigationDocumentSpine(int spineIndex, bool* scanSucceeded = nullptr) const;

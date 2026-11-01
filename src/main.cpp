@@ -95,6 +95,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/boot_sleep/ImageFolderIndex.h"
 #include "activities/home/BookActions.h"
 #include "activities/home/HardcoverLibraryActivity.h"
+#include "activities/reader/RecapActivity.h"
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/reader/ReadingStatsUtils.h"
@@ -1550,6 +1551,12 @@ void setup() {
           LOG_ERR("MAIN", "OOM: Hardcover auth activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
         }
+        break;
+      }
+      case NetworkBootTarget::RECAP: {
+        auto recap = makeUniqueNoThrow<RecapActivity>(renderer, mappedInputManager, true);
+        if (recap) { activityManager.replaceActivity(std::move(recap)); launched = true; }
+        else LOG_ERR("RECAP", "OOM opening recap after network boot");
         break;
       }
       case NetworkBootTarget::HARDCOVER_LIBRARY: {
